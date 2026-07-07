@@ -97,6 +97,34 @@ but are not exposed as current public photos.
 Rejected photo email notifications are sent by Celery only when
 `PHOTO_MODERATION_EMAIL_ENABLED=true`.
 
+## Org API
+
+Org endpoints are authenticated and use paginated responses for flat lists.
+
+- `GET /api/org/departments/`
+- `GET /api/org/structure/`
+- `GET /api/org/employees/`
+
+`GET /api/org/employees/` supports:
+
+- `search`: searches employee first name, last name, middle name, email, or login;
+- `department`: filters by direct department `code`;
+- `page` and `page_size`: standard DRF page-number pagination.
+
+The org employee list uses a list-only serializer. Manager and HRBP are nested
+compact employee references, and hidden phone/birthdate values are evaluated for
+each nested employee independently.
+
+Seed org performance data:
+
+```bash
+docker compose exec web python manage.py seed_org_data --employees 10000
+uv run --env-file .env --no-sync python manage.py seed_org_data --employees 10000
+```
+
+Performance notes and measurement commands are in
+`docs/performance/org_structure.md`.
+
 ## Wagtail content API
 
 Legal documents are managed as Wagtail snippets linked to Wagtail documents.

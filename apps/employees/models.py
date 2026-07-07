@@ -85,6 +85,10 @@ class Employee(models.Model):
         indexes = [
             models.Index(fields=["last_name", "first_name"]),
             models.Index(fields=["department", "is_active"]),
+            models.Index(
+                fields=["is_active", "last_name", "first_name"],
+                name="employee_active_name_idx",
+            ),
         ]
 
     def __str__(self) -> str:
