@@ -1,0 +1,46 @@
+[project]
+name = "intracore"
+version = "0.1.0"
+description = "Production-like Django backend for an internal employee portal."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "celery[redis]>=5.4,<6.0",
+    "django>=5.2,<6.0",
+    "djangorestframework>=3.16,<4.0",
+    "drf-spectacular>=0.28,<1.0",
+    "psycopg[binary]>=3.2,<4.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-django>=4.9,<5.0",
+    "pytest-mock>=3.14,<4.0",
+    "ruff>=0.8,<1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py", "*_tests.py", "tests.py"]
+testpaths = ["apps"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["apps", "config"]
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "DJ",
+    "E",
+    "F",
+    "I",
+    "UP",
+]
+
+[tool.ruff.format]
+quote-style = "double"
