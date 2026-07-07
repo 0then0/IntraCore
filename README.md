@@ -1,4 +1,4 @@
-# Internal Portal Lab
+# IntraCore
 
 Production-like Django backend project for practicing internal employee portal features.
 
@@ -66,3 +66,18 @@ After starting the app:
 - OpenAPI schema: `http://localhost:8000/api/schema/`
 - Swagger UI: `http://localhost:8000/api/docs/`
 - Health check: `http://localhost:8000/health/`
+
+## Core profile API
+
+Employee API identifiers use `employee_uuid`, exposed as `id` in responses.
+
+- `GET /api/profile/me/`
+- `PATCH /api/profile/me/`
+- `GET /api/employees/{id}/`
+- `PATCH /api/admin/employees/{id}/`
+
+Hidden phone and birthdate values are visible only to the profile owner. Nested
+employee objects apply the same privacy rule independently.
+
+Admin employee updates accept `department` by department `code`, and `manager`
+or `hrbp` by employee UUID.
