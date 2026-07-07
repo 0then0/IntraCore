@@ -55,6 +55,9 @@ HR_SYNC_TEXT_FIELDS = {
     "phone",
     "telegram_username",
     "city",
+    "add_location",
+    "location_city",
+    "location",
 }
 HR_SYNC_FIELDS = HR_SYNC_TEXT_FIELDS | {
     "department",

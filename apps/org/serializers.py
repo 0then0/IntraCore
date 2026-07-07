@@ -121,6 +121,7 @@ class OrgEmployeeReferenceSerializer(
 class OrgEmployeeListSerializer(OrgEmployeeReferenceSerializer):
     manager = OrgEmployeeReferenceSerializer(read_only=True)
     hrbp = OrgEmployeeReferenceSerializer(read_only=True)
+    city = serializers.SerializerMethodField()
     current_photo_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -131,6 +132,10 @@ class OrgEmployeeListSerializer(OrgEmployeeReferenceSerializer):
             "city",
             "current_photo_url",
         )
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_city(self, employee: Employee) -> str:
+        return employee.effective_city
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_current_photo_url(self, employee: Employee) -> str | None:

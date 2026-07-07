@@ -93,6 +93,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     hrbp = EmployeeNestedSerializer(read_only=True)
     phone = serializers.SerializerMethodField()
     birthdate = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
     current_photo_url = serializers.SerializerMethodField()
     has_pending_photo = serializers.SerializerMethodField()
     pending_photo_uploaded_at = serializers.SerializerMethodField()
@@ -150,6 +151,10 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             return employee.birthdate
 
         return None
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_city(self, employee: Employee) -> str:
+        return employee.effective_city
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_current_photo_url(self, employee: Employee) -> str | None:

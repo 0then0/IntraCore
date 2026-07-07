@@ -51,9 +51,12 @@ class Employee(models.Model):
     is_birthdate_visible = models.BooleanField(default=False)
     telegram_username = models.CharField(max_length=64, blank=True)
     city = models.CharField(max_length=120, blank=True)
+    add_location = models.CharField(max_length=120, blank=True)
+    location_city = models.CharField(max_length=120, blank=True)
+    location = models.CharField(max_length=120, blank=True)
     about = models.TextField(max_length=2500, blank=True)
     hobbies = models.TextField(max_length=2500, blank=True)
-    education = models.CharField(max_length=255, blank=True)
+    education = models.CharField(max_length=2500, blank=True)
     current_photo = models.FileField(
         blank=True,
         upload_to="employees/current_photos/",
@@ -102,3 +105,7 @@ class Employee(models.Model):
     @property
     def has_pending_photo(self) -> bool:
         return bool(self.pending_photo)
+
+    @property
+    def effective_city(self) -> str:
+        return self.add_location or self.location_city or self.location or self.city

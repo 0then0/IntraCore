@@ -154,6 +154,11 @@ uv run --env-file .env --no-sync python manage.py seed_org_data --employees 1000
 Performance notes and measurement commands are in
 `docs/performance/org_structure.md`.
 
+## Migration notes
+
+Safe migration notes and rollback limitations are documented in
+`docs/migrations/safe_migrations.md`.
+
 ## Wagtail content API
 
 Legal documents are managed as Wagtail snippets linked to Wagtail documents.
