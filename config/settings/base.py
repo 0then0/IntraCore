@@ -112,9 +112,9 @@ ASGI_APPLICATION = "config.asgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": _env("POSTGRES_DB", "internal_portal"),
-        "USER": _env("POSTGRES_USER", "internal_portal"),
-        "PASSWORD": _env("POSTGRES_PASSWORD", "internal_portal"),
+        "NAME": _env("POSTGRES_DB", "intracore"),
+        "USER": _env("POSTGRES_USER", "intracore"),
+        "PASSWORD": _env("POSTGRES_PASSWORD", "intracore"),
         "HOST": _env("POSTGRES_HOST", "localhost"),
         "PORT": _env("POSTGRES_PORT", "5432"),
     },
@@ -152,6 +152,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 WAGTAIL_SITE_NAME = "IntraCore"
+WAGTAILADMIN_BASE_URL = _env(
+    "WAGTAILADMIN_BASE_URL",
+    "http://localhost:8000/cms",
+)
 
 
 REST_FRAMEWORK = {
@@ -168,8 +172,8 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Internal Portal Lab API",
-    "DESCRIPTION": "Backend API for an internal employee portal training project.",
+    "TITLE": "IntraCore API",
+    "DESCRIPTION": "Backend API for the IntraCore internal employee portal.",
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
 }
@@ -180,6 +184,13 @@ CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = int(_env("CELERY_TASK_TIME_LIMIT", "300"))
+
+
+EMAIL_BACKEND = _env(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = _env("DJANGO_DEFAULT_FROM_EMAIL", "noreply@intracore.local")
 
 
 CAPTCHA_ENABLED = _env_bool("CAPTCHA_ENABLED", default=False)

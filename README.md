@@ -83,6 +83,20 @@ employee objects apply the same privacy rule independently.
 Admin employee updates accept `department` by department `code`, and `manager`
 or `hrbp` by employee UUID.
 
+## Photo moderation API
+
+Uploaded profile photos are stored as pending photos until an admin approves
+them. Pending photos are visible to the profile owner and moderation admins,
+but are not exposed as current public photos.
+
+- `POST /api/profile/me/photo/`
+- `GET /api/admin/photo-moderation/`
+- `POST /api/admin/photo-moderation/{employee_id}/approve/`
+- `POST /api/admin/photo-moderation/{employee_id}/reject/`
+
+Rejected photo email notifications are sent by Celery only when
+`PHOTO_MODERATION_EMAIL_ENABLED=true`.
+
 ## Wagtail content API
 
 Legal documents are managed as Wagtail snippets linked to Wagtail documents.

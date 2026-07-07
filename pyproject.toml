@@ -1,7 +1,7 @@
 [project]
-name = "intracore"
+name = "IntraCore"
 version = "0.1.0"
-description = "Production-like Django backend for an internal employee portal."
+description = "IntraCore backend for an internal employee portal."
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "celery[redis]>=5.4,<6.0",

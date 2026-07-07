@@ -6,6 +6,7 @@ from rest_framework import serializers
 
 from apps.employees.models import Employee
 from apps.employees.permissions import can_view_private_employee_fields
+from apps.employees.services import ALLOWED_PHOTO_CONTENT_TYPES, MAX_PHOTO_SIZE_BYTES
 from apps.org.models import Department
 from apps.org.serializers import DepartmentBriefSerializer
 
@@ -185,6 +186,69 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             self.context.get("viewer_employee"),
             employee,
         )
+
+
+class ProfilePhotoUploadSerializer(serializers.Serializer):
+    photo = serializers.ImageField()
+
+    def validate_photo(self, photo):
+        if photo.size > MAX_PHOTO_SIZE_BYTES:
+            raise serializers.ValidationError("Photo size must not exceed 5 MB.")
+
+        content_type = getattr(photo, "content_type", "")
+        if content_type not in ALLOWED_PHOTO_CONTENT_TYPES:
+            raise serializers.ValidationError(
+                "Photo must be a JPEG, PNG, or WebP image.",
+            )
+
+        return photo
+
+
+class PhotoRejectSerializer(serializers.Serializer):
+    reason = serializers.CharField(
+        allow_blank=False,
+        max_length=500,
+        trim_whitespace=True,
+    )
+
+
+class PhotoModerationItemSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="employee_uuid", read_only=True)
+    full_name = serializers.CharField(read_only=True)
+    current_photo_url = serializers.SerializerMethodField()
+    pending_photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Employee
+        fields = (
+            "id",
+            "email",
+            "login",
+            "full_name",
+            "current_photo_url",
+            "pending_photo_url",
+            "pending_photo_uploaded_at",
+        )
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_current_photo_url(self, employee: Employee) -> str | None:
+        return _build_file_url(self.context.get("request"), employee.current_photo)
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_pending_photo_url(self, employee: Employee) -> str | None:
+        return _build_file_url(self.context.get("request"), employee.pending_photo)
+
+
+def _build_file_url(request, file_field) -> str | None:
+    if not file_field:
+        return None
+
+    url = file_field.url
+
+    if request is None:
+        return url
+
+    return request.build_absolute_uri(url)
 
 
 class EmployeeProfileUpdateSerializer(

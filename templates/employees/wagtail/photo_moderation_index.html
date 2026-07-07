@@ -1,0 +1,66 @@
+{% extends "wagtailadmin/base.html" %} {% block titletag %}Photo moderation{%endblock %} 
+{% block content %}
+<header class="nice-padding">
+  <h1>Photo moderation</h1>
+</header>
+
+<div class="nice-padding">
+  {% if employees %}
+  <table class="listing">
+    <thead>
+      <tr>
+        <th>Employee</th>
+        <th>Email</th>
+        <th>Current photo</th>
+        <th>Pending photo</th>
+        <th>Uploaded at</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for employee in employees %}
+      <tr>
+        <td>{{ employee.full_name }}</td>
+        <td>{{ employee.email }}</td>
+        <td>
+          {% if employee.current_photo %}
+          <a href="{{ employee.current_photo.url }}">Current photo</a>
+          {% else %} No current photo {% endif %}
+        </td>
+        <td>
+          <a href="{{ employee.pending_photo.url }}">Pending photo</a>
+        </td>
+        <td>{{ employee.pending_photo_uploaded_at }}</td>
+        <td>
+          <form
+            method="post"
+            action="{% url 'wagtail-photo-moderation-approve' employee.employee_uuid %}"
+          >
+            {% csrf_token %}
+            <button type="submit" class="button button-small">Approve</button>
+          </form>
+          <form
+            method="post"
+            action="{% url 'wagtail-photo-moderation-reject' employee.employee_uuid %}"
+          >
+            {% csrf_token %}
+            <label for="reject-reason-{{ employee.pk }}">Reject reason</label>
+            <input
+              id="reject-reason-{{ employee.pk }}"
+              type="text"
+              name="reason"
+              maxlength="500"
+              required
+            />
+            <button type="submit" class="button button-small no">Reject</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No pending photos.</p>
+  {% endif %}
+</div>
+{% endblock %}

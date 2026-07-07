@@ -12,12 +12,13 @@ services:
       DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
-      POSTGRES_DB: ${POSTGRES_DB:-internal_portal}
-      POSTGRES_USER: ${POSTGRES_USER:-internal_portal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-internal_portal}
+      POSTGRES_DB: ${POSTGRES_DB:-intracore}
+      POSTGRES_USER: ${POSTGRES_USER:-intracore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intracore}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0
+      WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost:8000/cms}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
       HR_SYNC_ENABLED: ${HR_SYNC_ENABLED:-false}
       PHOTO_MODERATION_EMAIL_ENABLED: ${PHOTO_MODERATION_EMAIL_ENABLED:-false}
@@ -35,12 +36,13 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-for-local-development}
       DJANGO_DEBUG: ${DJANGO_DEBUG:-true}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
-      POSTGRES_DB: ${POSTGRES_DB:-internal_portal}
-      POSTGRES_USER: ${POSTGRES_USER:-internal_portal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-internal_portal}
+      POSTGRES_DB: ${POSTGRES_DB:-intracore}
+      POSTGRES_USER: ${POSTGRES_USER:-intracore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intracore}
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0
+      WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost:8000/cms}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
       HR_SYNC_ENABLED: ${HR_SYNC_ENABLED:-false}
       PHOTO_MODERATION_EMAIL_ENABLED: ${PHOTO_MODERATION_EMAIL_ENABLED:-false}
@@ -51,9 +53,9 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-internal_portal}
-      POSTGRES_USER: ${POSTGRES_USER:-internal_portal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-internal_portal}
+      POSTGRES_DB: ${POSTGRES_DB:-intracore}
+      POSTGRES_USER: ${POSTGRES_USER:-intracore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-intracore}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:

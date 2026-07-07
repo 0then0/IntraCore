@@ -14,6 +14,10 @@ def employee_detail_queryset():
     )
 
 
+def pending_photo_moderation_queryset():
+    return employee_detail_queryset().exclude(pending_photo="")
+
+
 def get_employee_by_uuid(employee_uuid) -> Employee:
     return get_object_or_404(employee_detail_queryset(), employee_uuid=employee_uuid)
 

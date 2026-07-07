@@ -63,6 +63,9 @@ class Employee(models.Model):
         upload_to="employees/pending_photos/",
     )
     pending_photo_uploaded_at = models.DateTimeField(blank=True, null=True)
+    photo_rejection_reason = models.TextField(max_length=500, blank=True)
+    photo_moderated_at = models.DateTimeField(blank=True, null=True)
+    photo_rejection_email_sent_at = models.DateTimeField(blank=True, null=True)
     hired_at = models.DateField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
