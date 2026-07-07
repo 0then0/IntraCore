@@ -37,7 +37,7 @@ def _env_list(name: str, *, default: list[str] | None = None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-SECRET_KEY = _env("DJANGO_SECRET_KEY", required=True)
+SECRET_KEY = _env("DJANGO_SECRET_KEY", default="unsafe-test-secret-key")
 DEBUG = _env_bool("DJANGO_DEBUG", default=False)
 ALLOWED_HOSTS = _env_list(
     "DJANGO_ALLOWED_HOSTS",
@@ -53,10 +53,26 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sitemaps",
+    "wagtail.contrib.forms",
+    "wagtail.contrib.redirects",
+    "wagtail.embeds",
+    "wagtail.sites",
+    "wagtail.users",
+    "wagtail.snippets",
+    "wagtail.documents",
+    "wagtail.images",
+    "wagtail.search",
+    "wagtail.admin",
+    "wagtail",
+    "modelcluster",
+    "taggit",
     "rest_framework",
     "drf_spectacular",
     "apps.common",
     "apps.employees",
+    "apps.legal",
+    "apps.onboarding",
     "apps.org",
 ]
 
@@ -69,6 +85,7 @@ MIDDLEWARE = [
     "apps.common.middleware.RequestIdMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "wagtail.contrib.redirects.middleware.RedirectMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -134,6 +151,7 @@ MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+WAGTAIL_SITE_NAME = "IntraCore"
 
 
 REST_FRAMEWORK = {

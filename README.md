@@ -66,6 +66,7 @@ After starting the app:
 - OpenAPI schema: `http://localhost:8000/api/schema/`
 - Swagger UI: `http://localhost:8000/api/docs/`
 - Health check: `http://localhost:8000/health/`
+- Wagtail admin: `http://localhost:8000/cms/`
 
 ## Core profile API
 
@@ -81,3 +82,17 @@ employee objects apply the same privacy rule independently.
 
 Admin employee updates accept `department` by department `code`, and `manager`
 or `hrbp` by employee UUID.
+
+## Wagtail content API
+
+Legal documents are managed as Wagtail snippets linked to Wagtail documents.
+
+- `GET /api/legal-documents/`
+
+Onboarding items are managed as Wagtail snippets. Viewed onboarding records are
+stored per employee and protected by a database uniqueness constraint.
+
+- `GET /api/onboarding/available/`
+- `POST /api/onboarding/{code}/viewed/`
+
+Anonymous onboarding requests return `401`.

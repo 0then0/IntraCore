@@ -9,6 +9,7 @@ dependencies = [
     "djangorestframework>=3.16,<4.0",
     "drf-spectacular>=0.28,<1.0",
     "psycopg[binary]>=3.2,<4.0",
+    "wagtail>=7.0,<8.0",
 ]
 
 [dependency-groups]

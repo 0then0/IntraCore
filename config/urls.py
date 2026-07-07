@@ -3,9 +3,13 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.permissions import AllowAny
+from wagtail.admin import urls as wagtailadmin_urls
+from wagtail.documents import urls as wagtaildocs_urls
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    path("cms/", include(wagtailadmin_urls)),
+    path("documents/", include(wagtaildocs_urls)),
     path("health/", HealthView.as_view(), name="health"),
     path(
         "api/schema/",
@@ -21,5 +25,7 @@ urlpatterns = [
         name="swagger-ui",
     ),
     path("api/", include("apps.employees.urls")),
+    path("api/", include("apps.legal.urls")),
+    path("api/", include("apps.onboarding.urls")),
     path("api/org/", include("apps.org.urls")),
 ]
