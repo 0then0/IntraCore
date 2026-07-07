@@ -97,6 +97,35 @@ but are not exposed as current public photos.
 Rejected photo email notifications are sent by Celery only when
 `PHOTO_MODERATION_EMAIL_ENABLED=true`.
 
+## HR sync
+
+HR sync is disabled by default with `HR_SYNC_ENABLED=false`. The admin API queues
+sync work in Celery and does not call the external HR service inside the request
+cycle.
+
+Configure the fake/upstream HR service with `HR_API_BASE_URL` and
+`HR_API_TIMEOUT_SECONDS`.
+
+- `POST /api/admin/employees/{id}/hr-sync/`
+
+The endpoint returns:
+
+- `202` when the sync task was queued;
+- `400` when the employee has no `external_id`;
+- `401` when authentication is missing;
+- `403` when the user is not staff;
+- `404` when the employee does not exist;
+- `503` when `HR_SYNC_ENABLED=false`.
+
+`HrClient` maps upstream responses in the service layer:
+
+- HR `400` -> controlled validation error;
+- HR `423` -> employee locked error;
+- HR `500+` -> upstream error;
+- timeout -> timeout error.
+
+External HR logs use masked structured payloads only.
+
 ## Org API
 
 Org endpoints are authenticated and use paginated responses for flat lists.

@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.employees.views import (
     AdminEmployeeDetailView,
+    AdminEmployeeHrSyncView,
     AdminPhotoModerationApproveView,
     AdminPhotoModerationListView,
     AdminPhotoModerationRejectView,
@@ -22,6 +23,11 @@ urlpatterns = [
         "admin/employees/<uuid:id>/",
         AdminEmployeeDetailView.as_view(),
         name="admin-employee-detail",
+    ),
+    path(
+        "admin/employees/<uuid:id>/hr-sync/",
+        AdminEmployeeHrSyncView.as_view(),
+        name="admin-employee-hr-sync",
     ),
     path(
         "admin/photo-moderation/",

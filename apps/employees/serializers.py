@@ -212,6 +212,11 @@ class PhotoRejectSerializer(serializers.Serializer):
     )
 
 
+class HrSyncQueuedSerializer(serializers.Serializer):
+    status = serializers.CharField()
+    employee_id = serializers.UUIDField()
+
+
 class PhotoModerationItemSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="employee_uuid", read_only=True)
     full_name = serializers.CharField(read_only=True)

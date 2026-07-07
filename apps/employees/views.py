@@ -1,16 +1,19 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
     OpenApiTypes,
     extend_schema,
 )
+from rest_framework import status
 from rest_framework.exceptions import ValidationError as DrfValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.feature_flags import hr_sync_enabled
 from apps.employees.permissions import IsStaffUser
 from apps.employees.selectors import (
     get_employee_by_uuid,
@@ -22,6 +25,7 @@ from apps.employees.serializers import (
     AdminEmployeeUpdateSerializer,
     EmployeeDetailSerializer,
     EmployeeProfileUpdateSerializer,
+    HrSyncQueuedSerializer,
     PhotoModerationItemSerializer,
     PhotoRejectSerializer,
     ProfilePhotoUploadSerializer,
@@ -205,6 +209,56 @@ class AdminEmployeeDetailView(APIView):
         )
 
         return Response(response_serializer.data)
+
+
+class AdminEmployeeHrSyncView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    @extend_schema(
+        tags=["Admin Employees"],
+        parameters=[EMPLOYEE_ID_PARAMETER],
+        request=None,
+        responses={
+            202: HrSyncQueuedSerializer,
+            400: OpenApiResponse(description="Employee has no external HR id."),
+            401: OpenApiResponse(description="Authentication is required."),
+            403: OpenApiResponse(description="Admin access is required."),
+            404: OpenApiResponse(description="Employee was not found."),
+            503: OpenApiResponse(description="HR sync is disabled."),
+        },
+    )
+    def post(self, request, id):
+        employee = get_employee_by_uuid(id)
+
+        if not hr_sync_enabled():
+            return Response(
+                {
+                    "code": "hr_sync_disabled",
+                    "detail": "HR sync is disabled.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        if not employee.external_id:
+            return Response(
+                {
+                    "code": "employee_external_id_missing",
+                    "detail": "Employee has no external HR id.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from apps.employees.tasks import sync_employee_from_hr_task
+
+        transaction.on_commit(lambda: sync_employee_from_hr_task.delay(employee.pk))
+
+        return Response(
+            {
+                "status": "queued",
+                "employee_id": employee.employee_uuid,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class AdminPhotoModerationListView(ListAPIView):
