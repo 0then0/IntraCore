@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 from apps.common.logging import mask_sensitive_mapping
 from apps.integrations.exceptions import (
     HrEmployeeLockedError,
+    HrIntegrationError,
     HrTimeoutError,
     HrUpstreamError,
     HrValidationError,
@@ -125,12 +126,19 @@ class HrClient:
 
 def _timeout_seconds(timeout_seconds: float | None) -> float:
     if timeout_seconds is None:
-        timeout_seconds = float(
-            os.environ.get("HR_API_TIMEOUT_SECONDS", DEFAULT_HR_API_TIMEOUT_SECONDS),
+        raw_timeout_seconds = os.environ.get(
+            "HR_API_TIMEOUT_SECONDS",
+            str(DEFAULT_HR_API_TIMEOUT_SECONDS),
         )
+        try:
+            timeout_seconds = float(raw_timeout_seconds)
+        except ValueError:
+            raise HrIntegrationError(
+                "HR API timeout config is invalid.",
+            ) from None
 
     if timeout_seconds <= 0:
-        raise ValueError("HR API timeout must be greater than zero.")
+        raise HrIntegrationError("HR API timeout must be greater than zero.")
 
     return timeout_seconds
 

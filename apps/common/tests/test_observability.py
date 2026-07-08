@@ -54,3 +54,12 @@ def test_openapi_schema_contains_health_path():
 
     assert response.status_code == status.HTTP_200_OK
     assert "/health/" in response.content.decode()
+
+
+def test_openapi_schema_excludes_wagtail_admin_paths():
+    response = APIClient().get(reverse("schema"))
+
+    assert response.status_code == status.HTTP_200_OK
+    schema = response.content.decode()
+    assert "/cms/" not in schema
+    assert "/documents/" not in schema

@@ -73,6 +73,9 @@ OpenAPI is generated with drf-spectacular at:
 - `GET /api/schema/`
 - `GET /api/docs/`
 
+The schema is scoped to the public API URLConf. Wagtail admin/document routes
+remain available at runtime but are intentionally excluded from OpenAPI.
+
 Schema annotations should document only real status codes. For custom error
 bodies, use `CodeDetailErrorSerializer`. For ordinary DRF validation errors,
 prefer descriptions unless the endpoint has a stable explicit error body.

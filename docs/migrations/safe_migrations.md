@@ -36,6 +36,8 @@ WHERE length(education) > 255;
 Migration:
 
 - `apps/employees/migrations/0004_employee_add_location_employee_location_and_more.py`
+- `apps/employees/migrations/0005_backfill_employee_location_fields.py`
+- `apps/employees/migrations/0006_employee_location_fields_not_null.py`
 
 Change:
 
@@ -52,23 +54,63 @@ the `city` key, but the value is resolved by this fallback order:
 3. `location`
 4. `city`
 
+`PATCH /api/profile/me/` still updates the legacy/manual `city` field. If HR
+source location fields are populated, they continue to take precedence in API
+responses until a later HR sync changes or clears them.
+
 Safety notes:
 
-- New fields are `blank=True` and not nullable.
-- No heavy backfill is required for this rollout.
+- New fields are added nullable first, without a one-shot `DEFAULT '' NOT NULL`
+  column add. This schema migration is non-atomic so each quick DDL step can
+  commit independently.
+- A temporary database default of `''` is set after the nullable add so old app
+  code cannot insert new `NULL` values during rollout. The final migration drops
+  that default after enforcing `NOT NULL`.
+- Existing rows are backfilled to empty strings in small batches in a non-atomic
+  data migration.
+- The final `NOT NULL` rollout happens only after the backfill. PostgreSQL
+  check/validate steps prepare the constraint before `ALTER COLUMN SET NOT NULL`.
+- No semantic data transform is required; the backfill only normalizes newly
+  added `NULL` values to empty strings.
 - No new indexes or unique constraints are added for these fields.
 - HR sync can populate the new source fields as payload support becomes
   available.
-- Before applying this migration to a very large production table, inspect the
-  generated SQL and lock behavior in a staging database.
+- Before applying this migration to a very large production table, inspect lock
+  behavior in a staging database and run the batch backfill during a low-write
+  window.
 
 Rollback limitation:
 
-- Rolling this migration back drops `add_location`, `location_city`, and
-  `location`.
+- Reversing `0006` relaxes the `NOT NULL` constraint.
+- Reversing `0005` is intentionally a no-op; it cannot know which empty strings
+  were original values and which were backfilled.
+- Reversing `0004` drops `add_location`, `location_city`, and `location`.
 - Any HR source location values stored only in those fields will be lost.
 - If rollback is required, export or copy the preferred fallback value into
   `city` first.
+
+## Org Directory Index
+
+Migration:
+
+- `apps/employees/migrations/0003_employee_employee_active_name_idx.py`
+
+Change:
+
+- Added `employee_active_name_idx` on
+  `(is_active, last_name, first_name)` for the active org directory list.
+
+Safety notes:
+
+- The index is created with PostgreSQL `CREATE INDEX CONCURRENTLY`.
+- The migration is non-atomic because PostgreSQL does not allow concurrent index
+  creation inside a transaction.
+
+Rollback limitation:
+
+- Reversing the migration removes the index concurrently.
+- Query plans for `GET /api/org/employees/` should be checked before removing
+  it on a large table.
 
 ## Employee UUID Rollout
 

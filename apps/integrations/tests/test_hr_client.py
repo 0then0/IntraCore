@@ -6,6 +6,7 @@ import pytest
 
 from apps.integrations.exceptions import (
     HrEmployeeLockedError,
+    HrIntegrationError,
     HrTimeoutError,
     HrUpstreamError,
     HrValidationError,
@@ -92,6 +93,22 @@ def test_hr_client_maps_timeout():
         client.get_employee("hr-1")
 
     assert error.value.__cause__ is None
+
+
+def test_hr_client_rejects_invalid_env_timeout(mocker):
+    mocker.patch.dict("os.environ", {"HR_API_TIMEOUT_SECONDS": "invalid"})
+
+    with pytest.raises(HrIntegrationError) as error:
+        HrClient(base_url="http://hr.test")
+
+    assert str(error.value) == "HR API timeout config is invalid."
+
+
+def test_hr_client_rejects_non_positive_timeout():
+    with pytest.raises(HrIntegrationError) as error:
+        HrClient(base_url="http://hr.test", timeout_seconds=0)
+
+    assert str(error.value) == "HR API timeout must be greater than zero."
 
 
 def test_hr_client_logs_masked_payloads(caplog):

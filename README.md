@@ -70,6 +70,8 @@ After starting the app:
 
 Every response includes `X-Request-ID`. Observability and error mapping notes
 are documented in `docs/observability.md`.
+The generated OpenAPI schema is scoped to backend API routes and excludes
+Wagtail admin/document routes.
 
 ## Core profile API
 

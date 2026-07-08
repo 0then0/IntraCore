@@ -175,6 +175,7 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "IntraCore API",
     "DESCRIPTION": "Backend API for the IntraCore internal employee portal.",
     "VERSION": "0.1.0",
+    "SERVE_URLCONF": "config.api_urls",
     "SERVE_INCLUDE_SCHEMA": False,
 }
 

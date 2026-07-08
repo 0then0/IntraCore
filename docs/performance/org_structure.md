@@ -28,6 +28,8 @@ Added for the org employee directory:
 This index matches the default active employee list ordered by name. Substring
 search currently uses `icontains`; PostgreSQL may not use btree indexes for
 `%term%` searches. Add `pg_trgm` only after measuring slow search on real data.
+The index is created with PostgreSQL `CREATE INDEX CONCURRENTLY` to avoid
+blocking writes on the employee table during rollout.
 
 ## Regression Targets
 

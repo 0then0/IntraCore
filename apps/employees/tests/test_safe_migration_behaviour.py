@@ -137,6 +137,29 @@ def test_profile_api_accepts_2500_character_education(api_client, django_user_mo
     assert employee.education == "a" * 2500
 
 
+def test_profile_city_patch_keeps_hr_source_precedence(
+    api_client,
+    django_user_model,
+):
+    employee = create_employee(
+        django_user_model,
+        city="Manual",
+        location_city="HR City",
+    )
+    api_client.force_authenticate(user=employee.user)
+
+    response = api_client.patch(
+        reverse("profile-me"),
+        {"city": "User City"},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["city"] == "HR City"
+    employee.refresh_from_db()
+    assert employee.city == "User City"
+
+
 def test_profile_api_rejects_2501_character_education(api_client, django_user_model):
     employee = create_employee(django_user_model)
     api_client.force_authenticate(user=employee.user)
