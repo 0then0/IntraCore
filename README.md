@@ -68,6 +68,9 @@ After starting the app:
 - Health check: `http://localhost:8000/health/`
 - Wagtail admin: `http://localhost:8000/cms/`
 
+Every response includes `X-Request-ID`. Observability and error mapping notes
+are documented in `docs/observability.md`.
+
 ## Core profile API
 
 Employee API identifiers use `employee_uuid`, exposed as `id` in responses.

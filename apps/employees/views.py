@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.common.feature_flags import hr_sync_enabled
+from apps.common.serializers import CodeDetailErrorSerializer
 from apps.employees.permissions import IsStaffUser
 from apps.employees.selectors import (
     get_employee_by_uuid,
@@ -220,11 +221,17 @@ class AdminEmployeeHrSyncView(APIView):
         request=None,
         responses={
             202: HrSyncQueuedSerializer,
-            400: OpenApiResponse(description="Employee has no external HR id."),
+            400: OpenApiResponse(
+                response=CodeDetailErrorSerializer,
+                description="Employee has no external HR id.",
+            ),
             401: OpenApiResponse(description="Authentication is required."),
             403: OpenApiResponse(description="Admin access is required."),
             404: OpenApiResponse(description="Employee was not found."),
-            503: OpenApiResponse(description="HR sync is disabled."),
+            503: OpenApiResponse(
+                response=CodeDetailErrorSerializer,
+                description="HR sync is disabled.",
+            ),
         },
     )
     def post(self, request, id):
