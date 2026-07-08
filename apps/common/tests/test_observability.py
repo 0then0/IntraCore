@@ -1,5 +1,7 @@
+import json
 import uuid
 
+from django.core.management import call_command
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -63,3 +65,20 @@ def test_openapi_schema_excludes_wagtail_admin_paths():
     schema = response.content.decode()
     assert "/cms/" not in schema
     assert "/documents/" not in schema
+
+
+def test_spectacular_command_uses_api_urlconf_by_default(tmp_path):
+    schema_file = tmp_path / "schema.json"
+
+    call_command(
+        "spectacular",
+        format="openapi-json",
+        validate=True,
+        fail_on_warn=True,
+        file=str(schema_file),
+    )
+
+    schema = json.loads(schema_file.read_text())
+    assert "/api/profile/me/" in schema["paths"]
+    assert all(not path.startswith("/cms/") for path in schema["paths"])
+    assert all(not path.startswith("/documents/") for path in schema["paths"])

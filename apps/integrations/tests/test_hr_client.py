@@ -104,9 +104,10 @@ def test_hr_client_rejects_invalid_env_timeout(mocker):
     assert str(error.value) == "HR API timeout config is invalid."
 
 
-def test_hr_client_rejects_non_positive_timeout():
+@pytest.mark.parametrize("timeout_seconds", [0, -1, float("nan"), float("inf")])
+def test_hr_client_rejects_invalid_timeout_values(timeout_seconds):
     with pytest.raises(HrIntegrationError) as error:
-        HrClient(base_url="http://hr.test", timeout_seconds=0)
+        HrClient(base_url="http://hr.test", timeout_seconds=timeout_seconds)
 
     assert str(error.value) == "HR API timeout must be greater than zero."
 

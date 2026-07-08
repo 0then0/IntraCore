@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from math import isfinite
 from time import perf_counter
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -137,7 +138,7 @@ def _timeout_seconds(timeout_seconds: float | None) -> float:
                 "HR API timeout config is invalid.",
             ) from None
 
-    if timeout_seconds <= 0:
+    if not isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise HrIntegrationError("HR API timeout must be greater than zero.")
 
     return timeout_seconds

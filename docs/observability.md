@@ -75,6 +75,8 @@ OpenAPI is generated with drf-spectacular at:
 
 The schema is scoped to the public API URLConf. Wagtail admin/document routes
 remain available at runtime but are intentionally excluded from OpenAPI.
+The project-level `spectacular` management command uses the same API URLConf by
+default, so schema validation commands do not scan Wagtail admin routes.
 
 Schema annotations should document only real status codes. For custom error
 bodies, use `CodeDetailErrorSerializer`. For ordinary DRF validation errors,

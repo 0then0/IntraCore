@@ -1,4 +1,3 @@
-from apps.common.views import HealthView
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -8,11 +7,12 @@ from rest_framework.permissions import AllowAny
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
+from config.api_urls import api_urlpatterns
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("cms/", include(wagtailadmin_urls)),
     path("documents/", include(wagtaildocs_urls)),
-    path("health/", HealthView.as_view(), name="health"),
     path(
         "api/schema/",
         SpectacularAPIView.as_view(permission_classes=[AllowAny]),
@@ -26,10 +26,7 @@ urlpatterns = [
         ),
         name="swagger-ui",
     ),
-    path("api/", include("apps.employees.urls")),
-    path("api/", include("apps.legal.urls")),
-    path("api/", include("apps.onboarding.urls")),
-    path("api/org/", include("apps.org.urls")),
+    *api_urlpatterns,
 ]
 
 if settings.DEBUG:

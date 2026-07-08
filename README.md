@@ -57,6 +57,7 @@ Use the same local environment file:
 uv run --env-file .env pytest
 uv run --env-file .env ruff check .
 uv run --env-file .env ruff format .
+uv run --env-file .env python manage.py spectacular --validate --fail-on-warn --file schema.yaml
 ```
 
 ## API docs
