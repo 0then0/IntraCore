@@ -21,7 +21,9 @@ Every response includes `X-Request-ID`.
   and replaced with a generated UUID.
 - The value is available on the request object as `request.request_id`.
 
-Use this ID when correlating API client errors with application logs.
+The JSON log formatter adds this ID to records emitted while processing an HTTP
+request. Celery task records have a `null` request ID unless a task-specific
+correlation ID is added by the caller.
 
 ## Error Mapping
 
@@ -58,11 +60,16 @@ The admin API queues HR sync work and does not call the external HR service in
 the request-response cycle, so upstream `400`, `423`, `500+`, and timeout errors
 are task/service outcomes, not direct HTTP responses from the queue endpoint.
 
+When `CAPTCHA_ENABLED=true`, `POST /api/profile/me/photo/` returns `400` for a
+missing or rejected `captcha_token` and `503 captcha_unavailable` when the
+verification service cannot be reached.
+
 ## Sensitive Logs
 
-External HR logs use masked structured payloads. Sensitive keys such as email,
-phone, names, login, external id, city, birthdate, Telegram username, password,
-and token are masked recursively.
+External HR logs are JSON records with `event`, `request_id`, `duration_ms`,
+`upstream_status`, and `masked_payload` fields when applicable. Sensitive keys
+such as email, phone, names, login, external id, city, birthdate, Telegram
+username, password, and token are masked recursively.
 
 Do not log raw HR payloads or raw request bodies.
 

@@ -61,6 +61,7 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 media/
+private_photos/
 
 # Flask stuff:
 instance/
@@ -209,6 +210,7 @@ tempCodeRunnerFile.py
 
 # Ruff stuff:
 .ruff_cache/
+schema.yaml
 
 # PyPI configuration file
 .pypirc

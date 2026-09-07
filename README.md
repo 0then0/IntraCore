@@ -7,6 +7,7 @@ Production-like Django backend project for practicing internal employee portal f
 - Python
 - Django
 - Django REST Framework
+- Wagtail
 - PostgreSQL
 - Celery
 - Redis
@@ -22,6 +23,12 @@ Copy the example environment file and adjust values if needed:
 ```bash
 cp .env.example .env
 ```
+
+Local Django and Celery commands load `.env` automatically. Environment
+variables already supplied by Docker, CI, or the shell take precedence.
+
+`DJANGO_SECRET_KEY` is mandatory when `DJANGO_DEBUG=false`. Do not use the
+example development key outside a local environment.
 
 ## Docker commands
 
@@ -43,10 +50,10 @@ Use this mode when PostgreSQL and Redis are available on the host machine.
 ```bash
 cp .env.example .env
 uv sync
-uv run --env-file .env python manage.py migrate
-uv run --env-file .env python manage.py createsuperuser
-uv run --env-file .env python manage.py runserver
-uv run --env-file .env celery -A config worker --loglevel=info
+uv run python manage.py migrate
+uv run python manage.py createsuperuser
+uv run python manage.py runserver
+uv run celery -A config worker --loglevel=info
 ```
 
 ## uv quality commands
@@ -54,10 +61,10 @@ uv run --env-file .env celery -A config worker --loglevel=info
 Use the same local environment file:
 
 ```bash
-uv run --env-file .env pytest
-uv run --env-file .env ruff check .
-uv run --env-file .env ruff format .
-uv run --env-file .env python manage.py spectacular --validate --fail-on-warn --file schema.yaml
+uv run pytest
+uv run ruff check .
+uv run ruff format .
+uv run python manage.py spectacular --validate --fail-on-warn --file schema.yaml
 ```
 
 ## API docs
@@ -92,8 +99,9 @@ or `hrbp` by employee UUID.
 ## Photo moderation API
 
 Uploaded profile photos are stored as pending photos until an admin approves
-them. Pending photos are visible to the profile owner and moderation admins,
-but are not exposed as current public photos.
+them. The profile owner can see only the pending status; moderation admins can
+download the pending file through a protected endpoint. Pending photos are not
+exposed as current public photos.
 
 - `POST /api/profile/me/photo/`
 - `GET /api/admin/photo-moderation/`
@@ -102,6 +110,26 @@ but are not exposed as current public photos.
 
 Rejected photo email notifications are sent by Celery only when
 `PHOTO_MODERATION_EMAIL_ENABLED=true`.
+The delivery claim expires after `PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS`
+(default: 900), allowing a redelivered task to recover after a worker loss.
+
+Pending files are stored outside public `MEDIA_ROOT`. Moderation admins download
+them through the protected API endpoint returned by the moderation list, not by
+using a storage URL directly.
+
+When upgrading an environment that already contains pending photos in public
+media, deploy this application version first. It can read legacy pending files
+from public media while the copy is in progress. Then apply migrations and run:
+
+```bash
+docker compose exec web python manage.py migrate_pending_photos --delete-source
+uv run python manage.py migrate_pending_photos --delete-source
+```
+
+Photo uploads can be protected with CAPTCHA. With `CAPTCHA_ENABLED=true`, the
+multipart request must include a `captcha_token`; the verification service is
+configured with `CAPTCHA_VERIFY_URL` and `CAPTCHA_TIMEOUT_SECONDS`. With the
+flag disabled, no CAPTCHA request is made.
 
 ## HR sync
 
@@ -131,6 +159,7 @@ The endpoint returns:
 - timeout -> timeout error.
 
 External HR logs use masked structured payloads only.
+They are emitted as JSON and include a request ID for synchronous API calls.
 
 ## Org API
 
@@ -154,7 +183,7 @@ Seed org performance data:
 
 ```bash
 docker compose exec web python manage.py seed_org_data --employees 10000
-uv run --env-file .env --no-sync python manage.py seed_org_data --employees 10000
+uv run --no-sync python manage.py seed_org_data --employees 10000
 ```
 
 Performance notes and measurement commands are in

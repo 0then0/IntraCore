@@ -31,6 +31,8 @@ def user(django_user_model):
 def create_wagtail_document(*, title: str, filename: str):
     document_model = get_document_model()
     root_collection = Collection.get_first_root_node()
+    if root_collection is None:
+        root_collection = Collection.add_root(name="Root")
 
     return document_model.objects.create(
         title=title,

@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from apps.common.logging import request_id_context
+
 MAX_REQUEST_ID_LENGTH = 128
 
 
@@ -12,11 +14,14 @@ class RequestIdMiddleware:
     def __call__(self, request):
         request_id = _request_id_or_new(request.headers.get(self.header_name))
         request.request_id = request_id
+        context_token = request_id_context.set(request_id)
 
-        response = self.get_response(request)
-        response[self.header_name] = request_id
-
-        return response
+        try:
+            response = self.get_response(request)
+            response[self.header_name] = request_id
+            return response
+        finally:
+            request_id_context.reset(context_token)
 
 
 def _request_id_or_new(request_id: str | None) -> str:

@@ -2,7 +2,9 @@ from datetime import date
 from io import StringIO
 
 import pytest
-from django.core.management import call_command
+from django.core.exceptions import ValidationError
+from django.core.management import CommandError, call_command
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -359,3 +361,45 @@ def test_seed_org_data_command_is_idempotent():
     assert seed_employees.count() == 5
     assert seed_employees.exclude(manager__isnull=True).exists()
     assert seed_employees.exclude(hrbp__isnull=True).exists()
+
+
+def test_department_cannot_be_its_own_parent():
+    department = Department.objects.create(code="engineering", name="Engineering")
+    department.parent = department
+
+    with pytest.raises(ValidationError) as error:
+        department.full_clean()
+
+    assert "parent" in error.value.message_dict
+
+
+def test_department_clean_rejects_multi_department_cycle():
+    parent = Department.objects.create(code="parent", name="Parent")
+    child = Department.objects.create(code="child", name="Child", parent=parent)
+    parent.parent = child
+
+    with pytest.raises(ValidationError) as error:
+        parent.full_clean()
+
+    assert "parent" in error.value.message_dict
+
+
+def test_database_rejects_department_cycle_when_model_validation_is_bypassed():
+    parent = Department.objects.create(code="parent", name="Parent")
+    child = Department.objects.create(code="child", name="Child", parent=parent)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Department.objects.filter(pk=parent.pk).update(parent=child)
+
+
+def test_seed_org_data_rejects_email_or_login_collision():
+    Employee.objects.create(
+        external_id="custom-id",
+        email="seed.employee.00000@seed.intracore.local",
+        login="custom-login",
+        first_name="Existing",
+        last_name="Employee",
+    )
+
+    with pytest.raises(CommandError, match="Seed employee email or login conflicts"):
+        call_command("seed_org_data", employees=1, departments=1)

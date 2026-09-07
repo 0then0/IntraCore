@@ -17,4 +17,5 @@ build
 *.egg-info
 node_modules
 media
+private_photos
 staticfiles

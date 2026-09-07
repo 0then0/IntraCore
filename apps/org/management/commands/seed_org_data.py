@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from apps.employees.models import Employee
 from apps.org.models import Department
@@ -102,6 +103,24 @@ class Command(BaseCommand):
         expected_external_ids = [
             _employee_external_id(number) for number in range(employee_count)
         ]
+        expected_emails = [
+            f"seed.employee.{number:05d}@{SEED_EMAIL_DOMAIN}"
+            for number in range(employee_count)
+        ]
+        expected_logins = [
+            f"seed.employee.{number:05d}" for number in range(employee_count)
+        ]
+        conflicting_employee = (
+            Employee.objects.filter(
+                Q(email__in=expected_emails) | Q(login__in=expected_logins),
+            )
+            .exclude(external_id__in=expected_external_ids)
+            .first()
+        )
+        if conflicting_employee:
+            raise CommandError(
+                "Seed employee email or login conflicts with an existing employee.",
+            )
         existing_external_ids = set(
             Employee.objects.filter(
                 external_id__in=expected_external_ids,

@@ -2,8 +2,11 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
+load_dotenv(BASE_DIR / ".env", override=False)
 
 
 def _env(name: str, default: str | None = None, *, required: bool = False) -> str:
@@ -37,8 +40,34 @@ def _env_list(name: str, *, default: list[str] | None = None) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-SECRET_KEY = _env("DJANGO_SECRET_KEY", default="unsafe-test-secret-key")
+def _env_positive_int(name: str, *, default: int) -> int:
+    raw_value = _env(name, str(default))
+
+    try:
+        value = int(raw_value)
+    except ValueError as error:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be a positive integer.",
+        ) from error
+
+    if value <= 0:
+        raise ImproperlyConfigured(
+            f"Environment variable {name} must be a positive integer.",
+        )
+
+    return value
+
+
+def _secret_key(*, debug: bool) -> str:
+    return _env(
+        "DJANGO_SECRET_KEY",
+        default="unsafe-test-secret-key" if debug else None,
+        required=not debug,
+    )
+
+
 DEBUG = _env_bool("DJANGO_DEBUG", default=False)
+SECRET_KEY = _secret_key(debug=DEBUG)
 ALLOWED_HOSTS = _env_list(
     "DJANGO_ALLOWED_HOSTS",
     default=["localhost", "127.0.0.1"],
@@ -149,6 +178,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+PRIVATE_PHOTO_ROOT = BASE_DIR / "private_photos"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 WAGTAIL_SITE_NAME = "IntraCore"
@@ -195,10 +225,16 @@ DEFAULT_FROM_EMAIL = _env("DJANGO_DEFAULT_FROM_EMAIL", "noreply@intracore.local"
 
 
 CAPTCHA_ENABLED = _env_bool("CAPTCHA_ENABLED", default=False)
+CAPTCHA_VERIFY_URL = _env("CAPTCHA_VERIFY_URL", "http://captcha.example.test/verify")
+CAPTCHA_TIMEOUT_SECONDS = _env("CAPTCHA_TIMEOUT_SECONDS", "5")
 HR_SYNC_ENABLED = _env_bool("HR_SYNC_ENABLED", default=False)
 PHOTO_MODERATION_EMAIL_ENABLED = _env_bool(
     "PHOTO_MODERATION_EMAIL_ENABLED",
     default=False,
+)
+PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS = _env_positive_int(
+    "PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS",
+    default=900,
 )
 
 
@@ -206,14 +242,20 @@ LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "plain": {
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        "json": {
+            "()": "apps.common.logging.JsonFormatter",
+        },
+    },
+    "filters": {
+        "request_id": {
+            "()": "apps.common.logging.RequestIdFilter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "plain",
+            "formatter": "json",
+            "filters": ["request_id"],
         },
     },
     "root": {

@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from django.http import FileResponse, Http404
 from drf_spectacular.utils import (
     OpenApiParameter,
     OpenApiResponse,
@@ -38,6 +39,7 @@ from apps.employees.services import (
     update_own_profile,
     upload_pending_photo,
 )
+from apps.integrations.exceptions import CaptchaUnavailableError
 
 EMPLOYEE_ID_PARAMETER = OpenApiParameter(
     name="id",
@@ -75,6 +77,7 @@ class ProfileMeView(APIView):
         tags=["Profile"],
         responses={
             200: EmployeeDetailSerializer,
+            400: OpenApiResponse(description="Pending photo is unavailable."),
             401: OpenApiResponse(description="Authentication is required."),
             404: OpenApiResponse(description="Employee profile was not found."),
         },
@@ -153,6 +156,10 @@ class ProfilePhotoUploadView(APIView):
             400: OpenApiResponse(description="Photo upload validation failed."),
             401: OpenApiResponse(description="Authentication is required."),
             404: OpenApiResponse(description="Employee profile was not found."),
+            503: OpenApiResponse(
+                response=CodeDetailErrorSerializer,
+                description="Captcha verification is unavailable.",
+            ),
         },
     )
     def post(self, request):
@@ -162,10 +169,20 @@ class ProfilePhotoUploadView(APIView):
 
         try:
             employee = upload_pending_photo(
-                employee, serializer.validated_data["photo"]
+                employee,
+                serializer.validated_data["photo"],
+                captcha_token=serializer.validated_data.get("captcha_token"),
             )
         except DjangoValidationError as error:
             _raise_drf_validation_error(error)
+        except CaptchaUnavailableError as error:
+            return Response(
+                {
+                    "code": "captcha_unavailable",
+                    "detail": error.detail,
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         response_serializer = EmployeeDetailSerializer(
             employee,
@@ -307,13 +324,41 @@ class AdminPhotoModerationApproveView(APIView):
     )
     def post(self, request, employee_id):
         employee = get_employee_by_uuid(employee_id)
-        employee = approve_pending_photo(employee)
+        try:
+            employee = approve_pending_photo(employee)
+        except DjangoValidationError as error:
+            _raise_drf_validation_error(error)
+
         serializer = EmployeeDetailSerializer(
             employee,
             context=_admin_serializer_context(request),
         )
 
         return Response(serializer.data)
+
+
+class AdminPendingPhotoView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffUser]
+
+    @extend_schema(
+        tags=["Photo Moderation"],
+        parameters=[EMPLOYEE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(description="Pending photo binary response."),
+            401: OpenApiResponse(description="Authentication is required."),
+            403: OpenApiResponse(description="Admin access is required."),
+            404: OpenApiResponse(description="Pending photo was not found."),
+        },
+    )
+    def get(self, request, employee_id):
+        employee = get_employee_by_uuid(employee_id)
+        if not employee.pending_photo:
+            raise Http404
+
+        try:
+            return FileResponse(employee.pending_photo.open("rb"))
+        except FileNotFoundError as error:
+            raise Http404 from error
 
 
 class AdminPhotoModerationRejectView(APIView):

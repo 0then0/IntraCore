@@ -39,3 +39,19 @@ class HrTimeoutError(HrIntegrationError):
     code = "hr_timeout"
     status_code = 504
     default_detail = "HR service timed out."
+
+
+class CaptchaValidationError(ApplicationError):
+    default_detail = "Captcha verification failed."
+
+    def __init__(self, detail: str | None = None):
+        self.detail = detail or self.default_detail
+        super().__init__(self.detail)
+
+
+class CaptchaUnavailableError(ApplicationError):
+    default_detail = "Captcha verification is unavailable."
+
+    def __init__(self, detail: str | None = None):
+        self.detail = detail or self.default_detail
+        super().__init__(self.detail)

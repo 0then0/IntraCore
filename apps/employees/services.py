@@ -1,13 +1,19 @@
 from collections.abc import Mapping
 from datetime import date
+from pathlib import Path
 
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from apps.common.feature_flags import hr_sync_enabled
-from apps.employees.models import Employee
-from apps.integrations.exceptions import HrSyncDisabledError
+from apps.common.feature_flags import captcha_enabled, hr_sync_enabled
+from apps.employees.models import Employee, PhotoRejectionNotification
+from apps.integrations.captcha_client import CaptchaClient
+from apps.integrations.exceptions import (
+    CaptchaValidationError,
+    HrSyncDisabledError,
+)
 from apps.integrations.hr_client import HrClient
 from apps.org.models import Department
 
@@ -76,58 +82,123 @@ def update_employee_as_admin(employee: Employee, data: Mapping) -> Employee:
     return _update_employee(employee, data, ADMIN_EMPLOYEE_UPDATE_FIELDS)
 
 
-@transaction.atomic
-def upload_pending_photo(employee: Employee, photo) -> Employee:
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+def upload_pending_photo(
+    employee: Employee,
+    photo,
+    *,
+    captcha_token: str | None = None,
+    captcha_client: CaptchaClient | None = None,
+) -> Employee:
+    if captcha_enabled():
+        if not captcha_token:
+            raise ValidationError({"captcha_token": "Captcha token is required."})
 
-    if employee.pending_photo:
-        raise ValidationError(
-            {"photo": "A photo is already pending moderation."},
+        try:
+            (captcha_client or CaptchaClient()).verify(captcha_token)
+        except CaptchaValidationError as error:
+            raise ValidationError({"captcha_token": error.detail}) from error
+
+    with transaction.atomic():
+        employee = Employee.objects.select_for_update().get(pk=employee.pk)
+
+        if employee.pending_photo:
+            raise ValidationError(
+                {"photo": "A photo is already pending moderation."},
+            )
+
+        employee.pending_photo = photo
+        employee.pending_photo_uploaded_at = timezone.now()
+        employee.photo_rejection_reason = ""
+        employee.photo_moderated_at = None
+        employee.photo_rejection_email_sent_at = None
+        employee.save(
+            update_fields=[
+                "pending_photo",
+                "pending_photo_uploaded_at",
+                "photo_rejection_reason",
+                "photo_moderated_at",
+                "photo_rejection_email_sent_at",
+                "updated_at",
+            ],
         )
-
-    employee.pending_photo = photo
-    employee.pending_photo_uploaded_at = timezone.now()
-    employee.photo_rejection_reason = ""
-    employee.photo_moderated_at = None
-    employee.photo_rejection_email_sent_at = None
-    employee.save(
-        update_fields=[
-            "pending_photo",
-            "pending_photo_uploaded_at",
-            "photo_rejection_reason",
-            "photo_moderated_at",
-            "photo_rejection_email_sent_at",
-            "updated_at",
-        ],
-    )
 
     return employee
 
 
-@transaction.atomic
 def approve_pending_photo(employee: Employee) -> Employee:
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+    with transaction.atomic():
+        employee = Employee.objects.select_for_update().get(pk=employee.pk)
 
-    if not employee.pending_photo:
-        return employee
+        if not employee.pending_photo:
+            return employee
 
-    employee.current_photo = employee.pending_photo
-    employee.pending_photo = ""
-    employee.pending_photo_uploaded_at = None
-    employee.photo_rejection_reason = ""
-    employee.photo_moderated_at = timezone.now()
-    employee.photo_rejection_email_sent_at = None
-    employee.save(
-        update_fields=[
-            "current_photo",
-            "pending_photo",
-            "pending_photo_uploaded_at",
-            "photo_rejection_reason",
-            "photo_moderated_at",
-            "photo_rejection_email_sent_at",
-            "updated_at",
-        ],
-    )
+        pending_photo_name = employee.pending_photo.name
+
+    try:
+        copied_photo_name = _copy_pending_photo_to_current_storage(
+            employee.pending_photo,
+        )
+    except FileNotFoundError:
+        return _resolve_missing_pending_photo(employee.pk, pending_photo_name)
+
+    discard_copied_photo = False
+
+    try:
+        with transaction.atomic():
+            employee = Employee.objects.select_for_update().get(pk=employee.pk)
+
+            if (
+                not employee.pending_photo
+                or employee.pending_photo.name != pending_photo_name
+            ):
+                discard_copied_photo = True
+            else:
+                previous_current_photo_name = employee.current_photo.name
+
+                employee.current_photo.name = copied_photo_name
+                employee.pending_photo = ""
+                employee.pending_photo_uploaded_at = None
+                employee.photo_rejection_reason = ""
+                employee.photo_moderated_at = timezone.now()
+                employee.photo_rejection_email_sent_at = None
+                employee.save(
+                    update_fields=[
+                        "current_photo",
+                        "pending_photo",
+                        "pending_photo_uploaded_at",
+                        "photo_rejection_reason",
+                        "photo_moderated_at",
+                        "photo_rejection_email_sent_at",
+                        "updated_at",
+                    ],
+                )
+
+                from apps.employees.tasks import (
+                    delete_current_photo_file,
+                    delete_pending_photo_file,
+                )
+
+                transaction.on_commit(
+                    lambda name=pending_photo_name: delete_pending_photo_file.delay(
+                        name
+                    ),
+                )
+                if (
+                    previous_current_photo_name
+                    and previous_current_photo_name != copied_photo_name
+                ):
+                    transaction.on_commit(
+                        lambda name=previous_current_photo_name: (
+                            delete_current_photo_file.delay(name)
+                        ),
+                    )
+
+    except Exception:
+        default_storage.delete(copied_photo_name)
+        raise
+
+    if discard_copied_photo:
+        default_storage.delete(copied_photo_name)
 
     return employee
 
@@ -144,6 +215,12 @@ def reject_pending_photo(employee: Employee, *, reason: str) -> Employee:
     if not employee.pending_photo:
         return employee
 
+    pending_photo_name = employee.pending_photo.name
+    notification = PhotoRejectionNotification.objects.create(
+        employee=employee,
+        recipient_email=employee.email,
+        reason=reason,
+    )
     employee.pending_photo = ""
     employee.pending_photo_uploaded_at = None
     employee.photo_rejection_reason = reason
@@ -160,9 +237,19 @@ def reject_pending_photo(employee: Employee, *, reason: str) -> Employee:
         ],
     )
 
-    from apps.employees.tasks import send_photo_rejection_email
+    from apps.employees.tasks import (
+        delete_pending_photo_file,
+        send_photo_rejection_email,
+    )
 
-    transaction.on_commit(lambda: send_photo_rejection_email.delay(employee.pk))
+    transaction.on_commit(
+        lambda notification_id=notification.pk: send_photo_rejection_email.delay(
+            notification_id,
+        ),
+    )
+    transaction.on_commit(
+        lambda name=pending_photo_name: delete_pending_photo_file.delay(name),
+    )
 
     return employee
 
@@ -182,12 +269,21 @@ def sync_employee_from_hr(
     payload = client.get_employee(employee.external_id)
     data = _employee_data_from_hr_payload(employee, payload)
 
-    return _sync_employee_data(employee, data)
+    return _sync_employee_data(employee.pk, employee.external_id, data)
 
 
 @transaction.atomic
-def _sync_employee_data(employee: Employee, data: Mapping) -> Employee:
-    employee = Employee.objects.select_for_update().get(pk=employee.pk)
+def _sync_employee_data(
+    employee_id: int,
+    expected_external_id: str,
+    data: Mapping,
+) -> Employee:
+    employee = Employee.objects.select_for_update().get(pk=employee_id)
+
+    if employee.external_id != expected_external_id:
+        raise ValidationError(
+            {"external_id": "Employee external HR id changed during sync."},
+        )
 
     for field, value in data.items():
         setattr(employee, field, value)
@@ -302,3 +398,30 @@ def _department_from_hr_code(code: str | None) -> Department | None:
         raise ValidationError(
             {"department_code": "HR department code was not found."},
         ) from error
+
+
+def _copy_pending_photo_to_current_storage(pending_photo) -> str:
+    filename = Path(pending_photo.name).name
+    destination_name = f"employees/current_photos/{filename}"
+
+    pending_photo.open("rb")
+    try:
+        return default_storage.save(destination_name, pending_photo.file)
+    finally:
+        pending_photo.close()
+
+
+@transaction.atomic
+def _resolve_missing_pending_photo(
+    employee_id: int,
+    expected_pending_photo_name: str,
+) -> Employee:
+    employee = Employee.objects.select_for_update().get(pk=employee_id)
+
+    if (
+        not employee.pending_photo
+        or employee.pending_photo.name != expected_pending_photo_name
+    ):
+        return employee
+
+    raise ValidationError({"photo": "Pending photo file is unavailable."})

@@ -4,6 +4,10 @@ from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
 
+from apps.employees.storage import PrivatePendingPhotoStorage
+
+private_pending_photo_storage = PrivatePendingPhotoStorage()
+
 
 class Employee(models.Model):
     employee_uuid = models.UUIDField(default=uuid4, unique=True, editable=False)
@@ -64,6 +68,7 @@ class Employee(models.Model):
     pending_photo = models.FileField(
         blank=True,
         upload_to="employees/pending_photos/",
+        storage=private_pending_photo_storage,
     )
     pending_photo_uploaded_at = models.DateTimeField(blank=True, null=True)
     photo_rejection_reason = models.TextField(max_length=500, blank=True)
@@ -109,3 +114,24 @@ class Employee(models.Model):
     @property
     def effective_city(self) -> str:
         return self.add_location or self.location_city or self.location or self.city
+
+
+class PhotoRejectionNotification(models.Model):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="photo_rejection_notifications",
+    )
+    recipient_email = models.EmailField(max_length=254)
+    reason = models.TextField(max_length=500)
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivery_claimed_at = models.DateTimeField(blank=True, null=True)
+    sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["sent_at", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Photo rejection notification {self.pk} for {self.employee_id}"

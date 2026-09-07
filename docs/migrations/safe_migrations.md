@@ -129,3 +129,36 @@ Rollback limitation:
 
 - After external API clients depend on UUIDs, removing the field is an API
   compatibility break, not only a database rollback.
+
+## Pending Photo Private Storage
+
+Migration:
+
+- `apps/employees/migrations/0007_alter_employee_pending_photo_and_more.py`
+
+Change:
+
+- New pending photos are stored outside public `MEDIA_ROOT`.
+- Rejection notifications are immutable rows, so a subsequent upload cannot
+  remove the reason or recipient of an already queued email.
+
+Rollout:
+
+1. Deploy the application version containing the private storage fallback. It
+   reads private files first and falls back to legacy public pending files.
+2. Apply the schema migration.
+3. Run `python manage.py migrate_pending_photos --delete-source` during a
+   controlled deployment window.
+4. Verify that the command reports no missing source files before allowing
+   public media cleanup to proceed.
+
+The command performs a full source-file preflight before copying or deleting
+anything. This prevents a missing later source file from leaving an earlier
+file only partially migrated.
+
+Rollback limitation:
+
+- The migration changes Django's storage binding only; it does not copy binary
+  files itself.
+- Do not roll back application code until pending files have been copied back
+  deliberately, or pending moderation links can become unavailable.

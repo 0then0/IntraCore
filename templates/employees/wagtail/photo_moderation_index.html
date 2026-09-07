@@ -1,4 +1,5 @@
-{% extends "wagtailadmin/base.html" %} {% block titletag %}Photo moderation{%endblock %} 
+{% extends "wagtailadmin/base.html" %}
+{% block titletag %}Photo moderation{% endblock %}
 {% block content %}
 <header class="nice-padding">
   <h1>Photo moderation</h1>
@@ -28,7 +29,11 @@
           {% else %} No current photo {% endif %}
         </td>
         <td>
-          <a href="{{ employee.pending_photo.url }}">Pending photo</a>
+          <a
+            href="{% url 'admin-photo-moderation-pending-photo' employee.employee_uuid %}"
+          >
+            Pending photo
+          </a>
         </td>
         <td>{{ employee.pending_photo_uploaded_at }}</td>
         <td>

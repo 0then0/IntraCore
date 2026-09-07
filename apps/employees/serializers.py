@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 
+from django.urls import reverse
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiTypes, extend_schema_field
 from rest_framework import serializers
@@ -195,6 +196,12 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
 class ProfilePhotoUploadSerializer(serializers.Serializer):
     photo = serializers.ImageField()
+    captcha_token = serializers.CharField(
+        allow_blank=False,
+        max_length=4096,
+        required=False,
+        write_only=True,
+    )
 
     def validate_photo(self, photo):
         if photo.size > MAX_PHOTO_SIZE_BYTES:
@@ -246,7 +253,15 @@ class PhotoModerationItemSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_pending_photo_url(self, employee: Employee) -> str | None:
-        return _build_file_url(self.context.get("request"), employee.pending_photo)
+        if not employee.pending_photo:
+            return None
+
+        url = reverse(
+            "admin-photo-moderation-pending-photo",
+            kwargs={"employee_id": employee.employee_uuid},
+        )
+        request = self.context.get("request")
+        return request.build_absolute_uri(url) if request else url
 
 
 def _build_file_url(request, file_field) -> str | None:

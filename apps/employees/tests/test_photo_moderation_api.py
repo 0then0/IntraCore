@@ -2,14 +2,25 @@ from base64 import b64decode
 from datetime import date
 
 import pytest
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from apps.employees.models import Employee
-from apps.employees.tasks import send_photo_rejection_email
+from apps.employees.models import (
+    Employee,
+    PhotoRejectionNotification,
+    private_pending_photo_storage,
+)
+from apps.employees.tasks import (
+    delete_current_photo_file,
+    delete_pending_photo_file,
+    send_photo_rejection_email,
+)
+from apps.integrations.exceptions import CaptchaUnavailableError
 
 pytestmark = pytest.mark.django_db
 
@@ -27,6 +38,10 @@ def api_client():
 @pytest.fixture
 def media_root(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path
+    settings.PRIVATE_PHOTO_ROOT = tmp_path / "private"
+    private_pending_photo_storage._location = str(settings.PRIVATE_PHOTO_ROOT)
+    private_pending_photo_storage.__dict__.pop("base_location", None)
+    private_pending_photo_storage.__dict__.pop("location", None)
     return tmp_path
 
 
@@ -137,6 +152,8 @@ def test_admin_approve_replaces_current_photo(
     api_client,
     django_user_model,
     media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
 ):
     staff_user = create_user(django_user_model, username="admin", is_staff=True)
     employee = create_employee(
@@ -145,16 +162,20 @@ def test_admin_approve_replaces_current_photo(
         current_photo=image_upload("current.png"),
         pending_photo=image_upload("pending.png"),
     )
-    pending_photo_name = employee.pending_photo.name
+    delete_pending = mocker.patch.object(delete_pending_photo_file, "delay")
+    delete_current = mocker.patch.object(delete_current_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
-    response = api_client.post(approve_url(employee))
+    with django_capture_on_commit_callbacks(execute=True):
+        response = api_client.post(approve_url(employee))
 
     assert response.status_code == status.HTTP_200_OK
     employee.refresh_from_db()
-    assert employee.current_photo.name == pending_photo_name
+    assert employee.current_photo.name.startswith("employees/current_photos/")
     assert not employee.pending_photo
     assert employee.pending_photo_uploaded_at is None
+    delete_pending.assert_called_once()
+    delete_current.assert_called_once()
 
 
 def test_admin_reject_requires_reason(
@@ -192,6 +213,7 @@ def test_admin_reject_enqueues_email_task_after_commit(
         pending_photo=image_upload("pending.png"),
     )
     delay = mocker.patch.object(send_photo_rejection_email, "delay")
+    delete_pending = mocker.patch.object(delete_pending_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
     with django_capture_on_commit_callbacks(execute=True):
@@ -202,7 +224,9 @@ def test_admin_reject_enqueues_email_task_after_commit(
         )
 
     assert response.status_code == status.HTTP_200_OK
-    delay.assert_called_once_with(employee.pk)
+    notification = PhotoRejectionNotification.objects.get(employee=employee)
+    delay.assert_called_once_with(notification.pk)
+    delete_pending.assert_called_once()
 
 
 def test_pending_photo_is_not_exposed_to_other_user(
@@ -257,9 +281,16 @@ def test_non_staff_user_cannot_access_photo_moderation(
 
     list_response = api_client.get(reverse("admin-photo-moderation-list"))
     approve_response = api_client.post(approve_url(employee))
+    pending_response = api_client.get(
+        reverse(
+            "admin-photo-moderation-pending-photo",
+            kwargs={"employee_id": employee.employee_uuid},
+        ),
+    )
 
     assert list_response.status_code == status.HTTP_403_FORBIDDEN
     assert approve_response.status_code == status.HTTP_403_FORBIDDEN
+    assert pending_response.status_code == status.HTTP_403_FORBIDDEN
 
 
 def test_approve_is_idempotent(api_client, django_user_model, media_root):
@@ -295,6 +326,7 @@ def test_reject_is_idempotent(
         pending_photo=image_upload("pending.png"),
     )
     delay = mocker.patch.object(send_photo_rejection_email, "delay")
+    mocker.patch.object(delete_pending_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
     with django_capture_on_commit_callbacks(execute=True):
@@ -314,4 +346,156 @@ def test_reject_is_idempotent(
     employee.refresh_from_db()
     assert not employee.pending_photo
     assert employee.photo_rejection_reason == "Low image quality."
-    delay.assert_called_once_with(employee.pk)
+    notification = PhotoRejectionNotification.objects.get(employee=employee)
+    delay.assert_called_once_with(notification.pk)
+
+
+def test_pending_photo_storage_is_not_public(
+    api_client,
+    django_user_model,
+    media_root,
+):
+    employee = create_employee(
+        django_user_model,
+        login="owner",
+        pending_photo=image_upload("pending.png"),
+    )
+
+    response = api_client.get(employee.pending_photo.url)
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_staff_can_read_legacy_pending_photo_during_storage_rollout(
+    api_client,
+    django_user_model,
+    media_root,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    legacy_photo_name = default_storage.save(
+        "employees/pending_photos/legacy.png",
+        ContentFile(PNG_1X1_BYTES),
+    )
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=legacy_photo_name,
+    )
+    api_client.force_authenticate(user=staff_user)
+
+    response = api_client.get(
+        reverse(
+            "admin-photo-moderation-pending-photo",
+            kwargs={"employee_id": employee.employee_uuid},
+        ),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert b"".join(response.streaming_content) == PNG_1X1_BYTES
+
+
+def test_approve_is_idempotent_when_pending_photo_is_rejected_during_copy(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    api_client.force_authenticate(user=staff_user)
+
+    def reject_before_copy(_pending_photo):
+        Employee.objects.filter(pk=employee.pk).update(
+            pending_photo="",
+            pending_photo_uploaded_at=None,
+        )
+        raise FileNotFoundError
+
+    mocker.patch(
+        "apps.employees.services._copy_pending_photo_to_current_storage",
+        side_effect=reject_before_copy,
+    )
+
+    response = api_client.post(approve_url(employee))
+
+    assert response.status_code == status.HTTP_200_OK
+    employee.refresh_from_db()
+    assert not employee.pending_photo
+
+
+def test_approve_returns_validation_error_when_pending_file_is_missing(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    api_client.force_authenticate(user=staff_user)
+    mocker.patch(
+        "apps.employees.services._copy_pending_photo_to_current_storage",
+        side_effect=FileNotFoundError,
+    )
+
+    response = api_client.post(approve_url(employee))
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "photo" in response.json()
+
+
+def test_photo_upload_returns_controlled_error_when_captcha_is_unavailable(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+):
+    employee = create_employee(django_user_model, login="owner")
+    api_client.force_authenticate(user=employee.user)
+    mocker.patch(
+        "apps.employees.views.upload_pending_photo",
+        side_effect=CaptchaUnavailableError(),
+    )
+
+    response = api_client.post(
+        reverse("profile-photo-upload"),
+        {"photo": image_upload("pending.png")},
+        format="multipart",
+    )
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert response.json() == {
+        "code": "captcha_unavailable",
+        "detail": "Captcha verification is unavailable.",
+    }
+
+
+def test_staff_can_download_pending_photo_through_protected_endpoint(
+    api_client,
+    django_user_model,
+    media_root,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    api_client.force_authenticate(user=staff_user)
+
+    response = api_client.get(
+        reverse(
+            "admin-photo-moderation-pending-photo",
+            kwargs={"employee_id": employee.employee_uuid},
+        ),
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert b"".join(response.streaming_content) == PNG_1X1_BYTES

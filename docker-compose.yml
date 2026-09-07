@@ -20,8 +20,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost:8000/cms}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
+      CAPTCHA_VERIFY_URL: ${CAPTCHA_VERIFY_URL:-http://captcha.example.test/verify}
+      CAPTCHA_TIMEOUT_SECONDS: ${CAPTCHA_TIMEOUT_SECONDS:-5}
       HR_SYNC_ENABLED: ${HR_SYNC_ENABLED:-false}
+      HR_API_BASE_URL: ${HR_API_BASE_URL:-http://hr.example.test}
+      HR_API_TIMEOUT_SECONDS: ${HR_API_TIMEOUT_SECONDS:-5}
       PHOTO_MODERATION_EMAIL_ENABLED: ${PHOTO_MODERATION_EMAIL_ENABLED:-false}
+      PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS: ${PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS:-900}
+      DJANGO_EMAIL_BACKEND: ${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL:-noreply@intracore.local}
     depends_on:
       - db
       - redis
@@ -44,8 +51,15 @@ services:
       REDIS_URL: redis://redis:6379/0
       WAGTAILADMIN_BASE_URL: ${WAGTAILADMIN_BASE_URL:-http://localhost:8000/cms}
       CAPTCHA_ENABLED: ${CAPTCHA_ENABLED:-false}
+      CAPTCHA_VERIFY_URL: ${CAPTCHA_VERIFY_URL:-http://captcha.example.test/verify}
+      CAPTCHA_TIMEOUT_SECONDS: ${CAPTCHA_TIMEOUT_SECONDS:-5}
       HR_SYNC_ENABLED: ${HR_SYNC_ENABLED:-false}
+      HR_API_BASE_URL: ${HR_API_BASE_URL:-http://hr.example.test}
+      HR_API_TIMEOUT_SECONDS: ${HR_API_TIMEOUT_SECONDS:-5}
       PHOTO_MODERATION_EMAIL_ENABLED: ${PHOTO_MODERATION_EMAIL_ENABLED:-false}
+      PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS: ${PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS:-900}
+      DJANGO_EMAIL_BACKEND: ${DJANGO_EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      DJANGO_DEFAULT_FROM_EMAIL: ${DJANGO_DEFAULT_FROM_EMAIL:-noreply@intracore.local}
     depends_on:
       - db
       - redis

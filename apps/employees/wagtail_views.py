@@ -31,7 +31,12 @@ def photo_moderation_index(request):
 @require_POST
 def photo_moderation_approve(request, employee_id):
     employee = get_employee_by_uuid(employee_id)
-    approve_pending_photo(employee)
+    try:
+        approve_pending_photo(employee)
+    except ValidationError:
+        messages.error(request, "Pending photo file is unavailable.")
+        return redirect("wagtail-photo-moderation-index")
+
     messages.success(request, "Photo approved.")
 
     return redirect("wagtail-photo-moderation-index")

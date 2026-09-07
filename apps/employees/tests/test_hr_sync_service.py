@@ -131,3 +131,26 @@ def test_sync_employee_from_hr_rejects_unknown_department(
         sync_employee_from_hr(employee, hr_client=hr_client)
 
     assert "department_code" in error.value.message_dict
+
+
+def test_sync_employee_from_hr_rejects_stale_external_id(
+    django_user_model,
+    settings,
+):
+    settings.HR_SYNC_ENABLED = True
+    employee = create_employee(django_user_model)
+
+    class StaleHrClient:
+        def get_employee(self, external_id: str) -> dict:
+            Employee.objects.filter(pk=employee.pk).update(external_id="hr-2")
+            return {
+                "external_id": external_id,
+                "first_name": "Stale",
+            }
+
+    with pytest.raises(ValidationError) as error:
+        sync_employee_from_hr(employee, hr_client=StaleHrClient())
+
+    assert "external_id" in error.value.message_dict
+    employee.refresh_from_db()
+    assert employee.first_name == "First"
