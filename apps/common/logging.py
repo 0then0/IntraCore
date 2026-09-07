@@ -40,7 +40,14 @@ class JsonFormatter(logging.Formatter):
             "request_id": getattr(record, "request_id", None),
         }
 
-        for field_name in ("event", "duration_ms", "upstream_status", "masked_payload"):
+        for field_name in (
+            "employee_id",
+            "error_type",
+            "event",
+            "duration_ms",
+            "upstream_status",
+            "masked_payload",
+        ):
             value = getattr(record, field_name, None)
             if value is not None:
                 payload[field_name] = value

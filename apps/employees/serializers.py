@@ -98,6 +98,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
     current_photo_url = serializers.SerializerMethodField()
     has_pending_photo = serializers.SerializerMethodField()
     pending_photo_uploaded_at = serializers.SerializerMethodField()
+    photo_publication_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -126,6 +127,7 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
             "current_photo_url",
             "has_pending_photo",
             "pending_photo_uploaded_at",
+            "photo_publication_status",
             "hired_at",
             "is_active",
             "created_at",
@@ -184,6 +186,13 @@ class EmployeeDetailSerializer(serializers.ModelSerializer):
 
         return employee.pending_photo_uploaded_at
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_photo_publication_status(self, employee: Employee) -> str | None:
+        if not self._can_view_private(employee):
+            return None
+
+        return employee.photo_publication_status
+
     def _can_view_private(self, employee: Employee) -> bool:
         if self.context.get("can_view_all_employee_fields"):
             return True
@@ -234,6 +243,7 @@ class PhotoModerationItemSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     current_photo_url = serializers.SerializerMethodField()
     pending_photo_url = serializers.SerializerMethodField()
+    photo_publication_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Employee
@@ -245,6 +255,7 @@ class PhotoModerationItemSerializer(serializers.ModelSerializer):
             "current_photo_url",
             "pending_photo_url",
             "pending_photo_uploaded_at",
+            "photo_publication_status",
         )
 
     @extend_schema_field(OpenApiTypes.URI)
@@ -253,7 +264,7 @@ class PhotoModerationItemSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_pending_photo_url(self, employee: Employee) -> str | None:
-        if not employee.pending_photo:
+        if not employee.pending_photo and not employee.approved_photo:
             return None
 
         url = reverse(

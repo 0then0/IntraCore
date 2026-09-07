@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from django.conf import settings
@@ -19,6 +20,8 @@ from apps.integrations.exceptions import (
     HrValidationError,
 )
 from celery import shared_task
+
+logger = logging.getLogger(__name__)
 
 
 class PhotoRejectionDeliveryError(Exception):
@@ -49,16 +52,30 @@ def send_photo_rejection_email(employee_id: int) -> None:
     if not employee.photo_rejection_reason or employee.photo_rejection_email_sent_at:
         return
 
-    send_mail(
-        subject="Profile photo rejected",
-        message=(
-            "Your profile photo was rejected.\n\n"
-            f"Reason: {employee.photo_rejection_reason}"
-        ),
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        recipient_list=[employee.email],
-        fail_silently=False,
-    )
+    try:
+        sent_count = send_mail(
+            subject="Profile photo rejected",
+            message=(
+                "Your profile photo was rejected.\n\n"
+                f"Reason: {employee.photo_rejection_reason}"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[employee.email],
+            fail_silently=False,
+        )
+        if sent_count != 1:
+            raise RuntimeError("Photo rejection email was not accepted for delivery.")
+    except Exception as error:
+        logger.error(
+            "Legacy photo rejection notification delivery failed.",
+            extra={
+                "employee_id": employee_id,
+                "error_type": type(error).__name__,
+                "event": "photo_rejection_notification_failed",
+            },
+        )
+        raise PhotoRejectionDeliveryError() from None
+
     Employee.objects.filter(
         pk=employee.pk,
         photo_rejection_email_sent_at__isnull=True,
@@ -92,8 +109,15 @@ def send_photo_rejection_notification_email(notification_id: int) -> None:
         )
         if sent_count != 1:
             raise RuntimeError("Photo rejection email was not accepted for delivery.")
-    except Exception:
+    except Exception as error:
         _release_photo_rejection_notification(notification_id)
+        logger.error(
+            "Photo rejection notification delivery failed.",
+            extra={
+                "event": "photo_rejection_notification_failed",
+                "error_type": type(error).__name__,
+            },
+        )
         raise PhotoRejectionDeliveryError() from None
 
     _mark_photo_rejection_notification_sent(notification_id)
@@ -121,11 +145,27 @@ def publish_approved_photo(employee_id: int) -> None:
             if saved_name != destination_name:
                 default_storage.delete(saved_name)
                 raise PhotoPromotionError("Approved photo destination already exists.")
-    except FileNotFoundError:
+    except FileNotFoundError as error:
         _release_approved_photo_promotion(employee_id, approved_photo_name)
+        logger.warning(
+            "Approved photo source file is unavailable.",
+            extra={
+                "employee_id": employee_id,
+                "error_type": type(error).__name__,
+                "event": "approved_photo_publication_failed",
+            },
+        )
         raise PhotoPromotionError("Approved photo file is unavailable.") from None
-    except Exception:
+    except Exception as error:
         _release_approved_photo_promotion(employee_id, approved_photo_name)
+        logger.error(
+            "Approved photo publication failed.",
+            extra={
+                "employee_id": employee_id,
+                "error_type": type(error).__name__,
+                "event": "approved_photo_publication_failed",
+            },
+        )
         raise PhotoPromotionError() from None
 
     _finalize_approved_photo_promotion(

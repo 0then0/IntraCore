@@ -16,6 +16,7 @@ from apps.employees.models import (
     private_pending_photo_storage,
 )
 from apps.employees.tasks import (
+    PhotoPromotionError,
     delete_current_photo_file,
     delete_pending_photo_file,
     publish_approved_photo,
@@ -186,6 +187,149 @@ def test_admin_approve_replaces_current_photo(
     publish.assert_called_once_with(employee.pk)
 
 
+def test_approve_returns_publication_status_until_task_finishes(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        current_photo=image_upload("current.png"),
+        pending_photo=image_upload("pending.png"),
+    )
+    previous_current_photo_name = employee.current_photo.name
+    mocker.patch.object(publish_approved_photo, "delay")
+    api_client.force_authenticate(user=staff_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = api_client.post(approve_url(employee))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["current_photo_url"].endswith(previous_current_photo_name)
+    assert response.json()["photo_publication_status"] == "publishing"
+
+
+def test_approved_photo_is_visible_to_admin_and_can_be_requeued(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    publish = mocker.patch.object(publish_approved_photo, "delay")
+    api_client.force_authenticate(user=staff_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        first_response = api_client.post(approve_url(employee))
+
+    employee.refresh_from_db()
+    assert first_response.status_code == status.HTTP_200_OK
+    assert employee.approved_photo
+
+    list_response = api_client.get(reverse("admin-photo-moderation-list"))
+    item = list_response.json()["results"][0]
+    assert item["id"] == str(employee.employee_uuid)
+    assert item["photo_publication_status"] == "publishing"
+    assert item["pending_photo_url"].endswith(
+        f"/api/admin/photo-moderation/{employee.employee_uuid}/pending-photo/"
+    )
+
+    download_response = api_client.get(item["pending_photo_url"])
+    assert download_response.status_code == status.HTTP_200_OK
+    assert b"".join(download_response.streaming_content) == PNG_1X1_BYTES
+
+    with django_capture_on_commit_callbacks(execute=True):
+        retry_response = api_client.post(approve_url(employee))
+
+    assert retry_response.status_code == status.HTTP_200_OK
+    assert retry_response.json()["photo_publication_status"] == "publishing"
+    assert publish.call_args_list == [
+        mocker.call(employee.pk),
+        mocker.call(employee.pk),
+    ]
+
+
+def test_admin_cannot_reject_photo_already_approved_for_publication(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    mocker.patch.object(publish_approved_photo, "delay")
+    api_client.force_authenticate(user=staff_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        api_client.post(approve_url(employee))
+
+    response = api_client.post(
+        reject_url(employee),
+        {"reason": "Late rejection."},
+        format="json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "photo" in response.json()
+    employee.refresh_from_db()
+    assert employee.approved_photo
+
+
+def test_photo_publisher_releases_state_and_logs_safe_failure(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    caplog,
+    django_capture_on_commit_callbacks,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    mocker.patch.object(publish_approved_photo, "delay")
+    api_client.force_authenticate(user=staff_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        api_client.post(approve_url(employee))
+
+    mocker.patch(
+        "apps.employees.tasks.default_storage.exists",
+        side_effect=RuntimeError("email=employee@example.com"),
+    )
+
+    with pytest.raises(PhotoPromotionError):
+        publish_approved_photo.run(employee.pk)
+
+    employee.refresh_from_db()
+    assert employee.approved_photo
+    assert employee.approved_photo_promotion_claimed_at is None
+    assert any(
+        getattr(record, "event", None) == "approved_photo_publication_failed"
+        and getattr(record, "employee_id", None) == employee.pk
+        and getattr(record, "error_type", None) == "RuntimeError"
+        for record in caplog.records
+    )
+    assert "employee@example.com" not in caplog.text
+
+
 def test_photo_publisher_recovers_after_copy_before_database_finalization(
     api_client,
     django_user_model,
@@ -290,6 +434,7 @@ def test_pending_photo_is_not_exposed_to_other_user(
     data = response.json()
     assert data["has_pending_photo"] is False
     assert data["pending_photo_uploaded_at"] is None
+    assert data["photo_publication_status"] is None
     assert "pending_photo_url" not in data
 
 
@@ -310,6 +455,7 @@ def test_owner_can_see_pending_photo_status(
     assert response.status_code == status.HTTP_200_OK
     assert response.json()["has_pending_photo"] is True
     assert response.json()["pending_photo_uploaded_at"] is not None
+    assert response.json()["photo_publication_status"] == "pending_moderation"
 
 
 def test_non_staff_user_cannot_access_photo_moderation(
@@ -333,7 +479,7 @@ def test_non_staff_user_cannot_access_photo_moderation(
     assert pending_response.status_code == status.HTTP_403_FORBIDDEN
 
 
-def test_approve_is_idempotent(
+def test_repeated_approve_requeues_photo_publication(
     api_client,
     django_user_model,
     media_root,
@@ -359,7 +505,10 @@ def test_approve_is_idempotent(
     employee.refresh_from_db()
     assert not employee.pending_photo
     assert employee.approved_photo
-    publish.assert_called_once_with(employee.pk)
+    assert publish.call_args_list == [
+        mocker.call(employee.pk),
+        mocker.call(employee.pk),
+    ]
 
 
 def test_owner_cannot_upload_while_approved_photo_is_waiting_for_publication(
@@ -542,6 +691,14 @@ def test_openapi_photo_approval_documents_only_real_validation_error(
     ]["post"]["responses"]
     assert "400" not in profile_get_responses
     assert "400" in approve_responses
+    schema_ref = approve_responses["200"]["content"]["application/json"]["schema"][
+        "$ref"
+    ]
+    schema_name = schema_ref.rsplit("/", maxsplit=1)[-1]
+    assert (
+        "photo_publication_status"
+        in schema["components"]["schemas"][schema_name]["properties"]
+    )
 
 
 def test_photo_upload_returns_controlled_error_when_captcha_is_unavailable(

@@ -37,7 +37,7 @@ def photo_moderation_approve(request, employee_id):
         messages.error(request, "Pending photo file is unavailable.")
         return redirect("wagtail-photo-moderation-index")
 
-    messages.success(request, "Photo approved.")
+    messages.success(request, "Photo approval accepted for publication.")
 
     return redirect("wagtail-photo-moderation-index")
 

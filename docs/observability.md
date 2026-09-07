@@ -73,6 +73,10 @@ username, password, and token are masked recursively.
 
 Do not log raw HR payloads or raw request bodies.
 
+Photo-publication and rejection-email task failures emit structured events with
+the employee database ID and exception type only. They do not include email
+addresses, file paths, photo names, or rejection reasons.
+
 ## OpenAPI Review
 
 OpenAPI is generated with drf-spectacular at:

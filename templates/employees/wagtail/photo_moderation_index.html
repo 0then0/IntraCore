@@ -14,6 +14,7 @@
         <th>Email</th>
         <th>Current photo</th>
         <th>Pending photo</th>
+        <th>Status</th>
         <th>Uploaded at</th>
         <th>Actions</th>
       </tr>
@@ -36,14 +37,18 @@
           </a>
         </td>
         <td>{{ employee.pending_photo_uploaded_at }}</td>
+        <td>{{ employee.photo_publication_status }}</td>
         <td>
           <form
             method="post"
             action="{% url 'wagtail-photo-moderation-approve' employee.employee_uuid %}"
           >
             {% csrf_token %}
-            <button type="submit" class="button button-small">Approve</button>
+            <button type="submit" class="button button-small">
+              {% if employee.approved_photo %}Retry publication{% else %}Approve{% endif %}
+            </button>
           </form>
+          {% if employee.pending_photo %}
           <form
             method="post"
             action="{% url 'wagtail-photo-moderation-reject' employee.employee_uuid %}"
@@ -59,6 +64,7 @@
             />
             <button type="submit" class="button button-small no">Reject</button>
           </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

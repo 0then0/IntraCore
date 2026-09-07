@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -15,7 +16,9 @@ def employee_detail_queryset():
 
 
 def pending_photo_moderation_queryset():
-    return employee_detail_queryset().exclude(pending_photo="")
+    return employee_detail_queryset().filter(
+        Q(pending_photo__gt="") | Q(approved_photo__gt=""),
+    )
 
 
 def get_employee_by_uuid(employee_uuid) -> Employee:

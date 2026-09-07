@@ -315,7 +315,13 @@ class AdminPhotoModerationApproveView(APIView):
         parameters=[EMPLOYEE_ID_PARAMETER],
         request=None,
         responses={
-            200: EmployeeDetailSerializer,
+            200: OpenApiResponse(
+                response=EmployeeDetailSerializer,
+                description=(
+                    "Approval is accepted. The response may keep the previous "
+                    "current_photo_url while photo_publication_status is publishing."
+                ),
+            ),
             400: OpenApiResponse(description="Pending photo is unavailable."),
             401: OpenApiResponse(description="Authentication is required."),
             403: OpenApiResponse(description="Admin access is required."),
@@ -352,11 +358,12 @@ class AdminPendingPhotoView(APIView):
     )
     def get(self, request, employee_id):
         employee = get_employee_by_uuid(employee_id)
-        if not employee.pending_photo:
+        photo = employee.pending_photo or employee.approved_photo
+        if not photo:
             raise Http404
 
         try:
-            return FileResponse(employee.pending_photo.open("rb"))
+            return FileResponse(photo.open("rb"))
         except FileNotFoundError as error:
             raise Http404 from error
 
@@ -370,7 +377,11 @@ class AdminPhotoModerationRejectView(APIView):
         request=PhotoRejectSerializer,
         responses={
             200: EmployeeDetailSerializer,
-            400: OpenApiResponse(description="Reject reason validation failed."),
+            400: OpenApiResponse(
+                description=(
+                    "Reject reason validation failed or photo is already approved."
+                ),
+            ),
             401: OpenApiResponse(description="Authentication is required."),
             403: OpenApiResponse(description="Admin access is required."),
             404: OpenApiResponse(description="Employee was not found."),

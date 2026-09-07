@@ -119,6 +119,14 @@ class Employee(models.Model):
         return bool(self.pending_photo or self.approved_photo)
 
     @property
+    def photo_publication_status(self) -> str | None:
+        if self.pending_photo:
+            return "pending_moderation"
+        if self.approved_photo:
+            return "publishing"
+        return None
+
+    @property
     def effective_city(self) -> str:
         return self.add_location or self.location_city or self.location or self.city
 

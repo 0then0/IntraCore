@@ -129,6 +129,23 @@ def approve_pending_photo(employee: Employee) -> Employee:
     with transaction.atomic():
         employee = Employee.objects.select_for_update().get(pk=employee.pk)
 
+        if employee.approved_photo:
+            if not employee.approved_photo_public_name:
+                employee.approved_photo_public_name = _new_current_photo_name(
+                    employee.approved_photo.name,
+                )
+                employee.approved_photo_promotion_claimed_at = None
+                employee.save(
+                    update_fields=[
+                        "approved_photo_public_name",
+                        "approved_photo_promotion_claimed_at",
+                        "updated_at",
+                    ],
+                )
+
+            _enqueue_approved_photo_publication(employee.pk)
+            return employee
+
         if not employee.pending_photo:
             return employee
 
@@ -170,11 +187,7 @@ def approve_pending_photo(employee: Employee) -> Employee:
             ],
         )
 
-        from apps.employees.tasks import publish_approved_photo
-
-        transaction.on_commit(
-            lambda employee_id=employee.pk: publish_approved_photo.delay(employee_id),
-        )
+        _enqueue_approved_photo_publication(employee.pk)
 
     return employee
 
@@ -189,6 +202,10 @@ def reject_pending_photo(employee: Employee, *, reason: str) -> Employee:
     employee = Employee.objects.select_for_update().get(pk=employee.pk)
 
     if not employee.pending_photo:
+        if employee.approved_photo:
+            raise ValidationError(
+                {"photo": "Photo has already been approved for publication."},
+            )
         return employee
 
     pending_photo_name = employee.pending_photo.name
@@ -381,6 +398,14 @@ def _department_from_hr_code(code: str | None) -> Department | None:
 def _new_current_photo_name(pending_photo_name: str) -> str:
     suffix = Path(pending_photo_name).suffix.lower()
     return f"employees/current_photos/{uuid4().hex}{suffix}"
+
+
+def _enqueue_approved_photo_publication(employee_id: int) -> None:
+    from apps.employees.tasks import publish_approved_photo
+
+    transaction.on_commit(
+        lambda: publish_approved_photo.delay(employee_id),
+    )
 
 
 @transaction.atomic

@@ -120,7 +120,11 @@ them through the protected API endpoint returned by the moderation list, not by
 using a storage URL directly.
 
 Approval moves the file through private storage first. The public current photo
-is published by a Celery task after the approval transaction commits.
+is published by a Celery task after the approval transaction commits. The approve
+response can therefore retain the prior `current_photo_url` while
+`photo_publication_status` is `publishing`. Moderation admins can retry
+publication from the API or Wagtail list if the task fails; the profile returns
+to the normal state after publication completes.
 
 When upgrading an environment that already contains pending photos in public
 media, apply migrations while the previous application version is still running.

@@ -159,3 +159,21 @@ def test_legacy_rejection_email_task_keeps_employee_id_contract(
     assert "Legacy rejection reason." in send_mail.call_args.kwargs["message"]
     employee.refresh_from_db()
     assert employee.photo_rejection_email_sent_at is not None
+
+
+def test_legacy_rejection_email_task_raises_retryable_error_on_delivery_failure(
+    django_user_model,
+    settings,
+    mocker,
+):
+    settings.PHOTO_MODERATION_EMAIL_ENABLED = True
+    employee = create_employee(django_user_model)
+    employee.photo_rejection_reason = "Legacy rejection reason."
+    employee.save(update_fields=["photo_rejection_reason", "updated_at"])
+    mocker.patch("apps.employees.tasks.send_mail", side_effect=RuntimeError)
+
+    with pytest.raises(PhotoRejectionDeliveryError):
+        send_photo_rejection_email.run(employee.pk)
+
+    employee.refresh_from_db()
+    assert employee.photo_rejection_email_sent_at is None
