@@ -1,9 +1,9 @@
 from collections.abc import Mapping
 from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
 from django.core.exceptions import ValidationError
-from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -101,7 +101,7 @@ def upload_pending_photo(
     with transaction.atomic():
         employee = Employee.objects.select_for_update().get(pk=employee.pk)
 
-        if employee.pending_photo:
+        if employee.pending_photo or employee.approved_photo:
             raise ValidationError(
                 {"photo": "A photo is already pending moderation."},
             )
@@ -135,70 +135,46 @@ def approve_pending_photo(employee: Employee) -> Employee:
         pending_photo_name = employee.pending_photo.name
 
     try:
-        copied_photo_name = _copy_pending_photo_to_current_storage(
-            employee.pending_photo,
-        )
+        with employee.pending_photo.open("rb"):
+            pass
     except FileNotFoundError:
         return _resolve_missing_pending_photo(employee.pk, pending_photo_name)
 
-    discard_copied_photo = False
+    with transaction.atomic():
+        employee = Employee.objects.select_for_update().get(pk=employee.pk)
+        if (
+            not employee.pending_photo
+            or employee.pending_photo.name != pending_photo_name
+        ):
+            return employee
 
-    try:
-        with transaction.atomic():
-            employee = Employee.objects.select_for_update().get(pk=employee.pk)
+        employee.approved_photo.name = pending_photo_name
+        employee.approved_photo_public_name = _new_current_photo_name(
+            pending_photo_name
+        )
+        employee.approved_photo_promotion_claimed_at = None
+        employee.pending_photo = ""
+        employee.photo_rejection_reason = ""
+        employee.photo_moderated_at = None
+        employee.photo_rejection_email_sent_at = None
+        employee.save(
+            update_fields=[
+                "approved_photo",
+                "approved_photo_public_name",
+                "approved_photo_promotion_claimed_at",
+                "pending_photo",
+                "photo_rejection_reason",
+                "photo_moderated_at",
+                "photo_rejection_email_sent_at",
+                "updated_at",
+            ],
+        )
 
-            if (
-                not employee.pending_photo
-                or employee.pending_photo.name != pending_photo_name
-            ):
-                discard_copied_photo = True
-            else:
-                previous_current_photo_name = employee.current_photo.name
+        from apps.employees.tasks import publish_approved_photo
 
-                employee.current_photo.name = copied_photo_name
-                employee.pending_photo = ""
-                employee.pending_photo_uploaded_at = None
-                employee.photo_rejection_reason = ""
-                employee.photo_moderated_at = timezone.now()
-                employee.photo_rejection_email_sent_at = None
-                employee.save(
-                    update_fields=[
-                        "current_photo",
-                        "pending_photo",
-                        "pending_photo_uploaded_at",
-                        "photo_rejection_reason",
-                        "photo_moderated_at",
-                        "photo_rejection_email_sent_at",
-                        "updated_at",
-                    ],
-                )
-
-                from apps.employees.tasks import (
-                    delete_current_photo_file,
-                    delete_pending_photo_file,
-                )
-
-                transaction.on_commit(
-                    lambda name=pending_photo_name: delete_pending_photo_file.delay(
-                        name
-                    ),
-                )
-                if (
-                    previous_current_photo_name
-                    and previous_current_photo_name != copied_photo_name
-                ):
-                    transaction.on_commit(
-                        lambda name=previous_current_photo_name: (
-                            delete_current_photo_file.delay(name)
-                        ),
-                    )
-
-    except Exception:
-        default_storage.delete(copied_photo_name)
-        raise
-
-    if discard_copied_photo:
-        default_storage.delete(copied_photo_name)
+        transaction.on_commit(
+            lambda employee_id=employee.pk: publish_approved_photo.delay(employee_id),
+        )
 
     return employee
 
@@ -239,12 +215,14 @@ def reject_pending_photo(employee: Employee, *, reason: str) -> Employee:
 
     from apps.employees.tasks import (
         delete_pending_photo_file,
-        send_photo_rejection_email,
+        send_photo_rejection_notification_email,
     )
 
     transaction.on_commit(
-        lambda notification_id=notification.pk: send_photo_rejection_email.delay(
-            notification_id,
+        lambda notification_id=notification.pk: (
+            send_photo_rejection_notification_email.delay(
+                notification_id,
+            )
         ),
     )
     transaction.on_commit(
@@ -400,15 +378,9 @@ def _department_from_hr_code(code: str | None) -> Department | None:
         ) from error
 
 
-def _copy_pending_photo_to_current_storage(pending_photo) -> str:
-    filename = Path(pending_photo.name).name
-    destination_name = f"employees/current_photos/{filename}"
-
-    pending_photo.open("rb")
-    try:
-        return default_storage.save(destination_name, pending_photo.file)
-    finally:
-        pending_photo.close()
+def _new_current_photo_name(pending_photo_name: str) -> str:
+    suffix = Path(pending_photo_name).suffix.lower()
+    return f"employees/current_photos/{uuid4().hex}{suffix}"
 
 
 @transaction.atomic

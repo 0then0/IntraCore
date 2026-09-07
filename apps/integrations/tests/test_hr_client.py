@@ -120,6 +120,8 @@ def test_hr_client_logs_masked_payloads(caplog):
             b'"email": "secret@example.com",'
             b'"login": "secret-login",'
             b'"phone": "+79990001122",'
+            b'"passport_number": "AA123456",'
+            b'"Email": "private@example.com",'
             b'"department_code": "engineering"'
             b"}",
         )
@@ -139,4 +141,7 @@ def test_hr_client_logs_masked_payloads(caplog):
     assert "secret-login" not in str(masked_payloads)
     assert "hr-secret" not in str(masked_payloads)
     assert "+79990001122" not in str(masked_payloads)
+    assert "AA123456" not in str(masked_payloads)
+    assert "private@example.com" not in str(masked_payloads)
     assert masked_payloads[-1]["department_code"] == "engineering"
+    assert masked_payloads[-1]["passport_number"] == "***"

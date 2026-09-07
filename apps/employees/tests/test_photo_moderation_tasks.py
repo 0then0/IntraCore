@@ -7,6 +7,7 @@ from apps.employees.models import Employee, PhotoRejectionNotification
 from apps.employees.tasks import (
     PhotoRejectionDeliveryError,
     send_photo_rejection_email,
+    send_photo_rejection_notification_email,
 )
 
 pytestmark = pytest.mark.django_db
@@ -46,7 +47,7 @@ def test_rejection_email_task_does_not_send_when_flag_disabled(
     notification = create_notification(create_employee(django_user_model))
     send_mail = mocker.patch("apps.employees.tasks.send_mail")
 
-    send_photo_rejection_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
 
     send_mail.assert_not_called()
     notification.refresh_from_db()
@@ -62,8 +63,8 @@ def test_rejection_email_task_sends_once_when_enabled(
     notification = create_notification(create_employee(django_user_model))
     send_mail = mocker.patch("apps.employees.tasks.send_mail", return_value=1)
 
-    send_photo_rejection_email(notification.pk)
-    send_photo_rejection_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
 
     send_mail.assert_called_once()
     notification.refresh_from_db()
@@ -83,7 +84,7 @@ def test_rejection_email_uses_immutable_notification_data(
     employee.save(update_fields=["email", "photo_rejection_reason"])
     send_mail = mocker.patch("apps.employees.tasks.send_mail", return_value=1)
 
-    send_photo_rejection_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
 
     assert send_mail.call_args.kwargs["recipient_list"] == ["employee@example.com"]
     assert "Low image quality." in send_mail.call_args.kwargs["message"]
@@ -101,7 +102,7 @@ def test_rejection_email_reclaims_stale_delivery_claim(
     notification.save(update_fields=["delivery_claimed_at"])
     send_mail = mocker.patch("apps.employees.tasks.send_mail", return_value=1)
 
-    send_photo_rejection_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
 
     send_mail.assert_called_once()
     notification.refresh_from_db()
@@ -118,7 +119,7 @@ def test_rejection_email_releases_claim_after_delivery_error(
     mocker.patch("apps.employees.tasks.send_mail", side_effect=RuntimeError)
 
     with pytest.raises(PhotoRejectionDeliveryError):
-        send_photo_rejection_email.run(notification.pk)
+        send_photo_rejection_notification_email.run(notification.pk)
 
     notification.refresh_from_db()
     assert notification.delivery_claimed_at is None
@@ -136,6 +137,25 @@ def test_rejection_email_does_not_reclaim_recent_delivery_claim(
     notification.save(update_fields=["delivery_claimed_at"])
     send_mail = mocker.patch("apps.employees.tasks.send_mail", return_value=1)
 
-    send_photo_rejection_email(notification.pk)
+    send_photo_rejection_notification_email(notification.pk)
 
     send_mail.assert_not_called()
+
+
+def test_legacy_rejection_email_task_keeps_employee_id_contract(
+    django_user_model,
+    settings,
+    mocker,
+):
+    settings.PHOTO_MODERATION_EMAIL_ENABLED = True
+    employee = create_employee(django_user_model)
+    employee.photo_rejection_reason = "Legacy rejection reason."
+    employee.save(update_fields=["photo_rejection_reason", "updated_at"])
+    send_mail = mocker.patch("apps.employees.tasks.send_mail", return_value=1)
+
+    send_photo_rejection_email(employee.pk)
+
+    assert send_mail.call_args.kwargs["recipient_list"] == [employee.email]
+    assert "Legacy rejection reason." in send_mail.call_args.kwargs["message"]
+    employee.refresh_from_db()
+    assert employee.photo_rejection_email_sent_at is not None

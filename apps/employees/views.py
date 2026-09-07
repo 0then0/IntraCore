@@ -77,7 +77,6 @@ class ProfileMeView(APIView):
         tags=["Profile"],
         responses={
             200: EmployeeDetailSerializer,
-            400: OpenApiResponse(description="Pending photo is unavailable."),
             401: OpenApiResponse(description="Authentication is required."),
             404: OpenApiResponse(description="Employee profile was not found."),
         },
@@ -317,6 +316,7 @@ class AdminPhotoModerationApproveView(APIView):
         request=None,
         responses={
             200: EmployeeDetailSerializer,
+            400: OpenApiResponse(description="Pending photo is unavailable."),
             401: OpenApiResponse(description="Authentication is required."),
             403: OpenApiResponse(description="Admin access is required."),
             404: OpenApiResponse(description="Employee was not found."),

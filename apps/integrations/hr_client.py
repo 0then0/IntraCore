@@ -21,6 +21,8 @@ DEFAULT_HR_API_TIMEOUT_SECONDS = 5.0
 
 logger = logging.getLogger(__name__)
 
+SAFE_HR_RESPONSE_LOG_FIELDS = {"department_code", "is_active"}
+
 
 class HrClient:
     def __init__(
@@ -81,7 +83,7 @@ class HrClient:
             extra={
                 "event": "hr.employee.response",
                 "duration_ms": _duration_ms(started_at),
-                "masked_payload": mask_sensitive_mapping(payload),
+                "masked_payload": _masked_hr_response_payload(payload),
             },
         )
 
@@ -153,3 +155,10 @@ def _decode_json_response(body: bytes) -> object:
 
 def _duration_ms(started_at: float) -> int:
     return round((perf_counter() - started_at) * 1000)
+
+
+def _masked_hr_response_payload(payload: dict) -> dict:
+    return {
+        key: value if key in SAFE_HR_RESPONSE_LOG_FIELDS else "***"
+        for key, value in payload.items()
+    }

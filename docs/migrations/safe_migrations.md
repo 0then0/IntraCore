@@ -135,26 +135,34 @@ Rollback limitation:
 Migration:
 
 - `apps/employees/migrations/0007_alter_employee_pending_photo_and_more.py`
+- `apps/employees/migrations/0008_approved_photo_promotion.py`
 
 Change:
 
 - New pending photos are stored outside public `MEDIA_ROOT`.
 - Rejection notifications are immutable rows, so a subsequent upload cannot
   remove the reason or recipient of an already queued email.
+- Approved files remain private until the publication task commits the new
+  public current-photo reference.
 
 Rollout:
 
-1. Deploy the application version containing the private storage fallback. It
-   reads private files first and falls back to legacy public pending files.
-2. Apply the schema migration.
-3. Run `python manage.py migrate_pending_photos --delete-source` during a
-   controlled deployment window.
-4. Verify that the command reports no missing source files before allowing
+1. Apply the schema migration while the preceding application version is still
+   serving traffic. New code must not write `PhotoRejectionNotification` before
+   its table exists.
+2. Drain and stop workers with the legacy `send_photo_rejection_email` task
+   before deploying web code that can enqueue the new notification task. The new
+   task has a distinct name.
+3. Deploy the version containing the private storage fallback. It reads private
+   files first and falls back to legacy public pending files.
+4. Run `python manage.py migrate_pending_photos --delete-source` only after all
+   web workers run the fallback-capable version.
+5. Verify that the command reports no missing source files before allowing
    public media cleanup to proceed.
 
-The command performs a full source-file preflight before copying or deleting
-anything. This prevents a missing later source file from leaving an earlier
-file only partially migrated.
+The command copies every available source first, verifies every private copy,
+and only then deletes public sources. A failed copy can leave harmless private
+duplicates, but cannot delete a public source before all copies are verified.
 
 Rollback limitation:
 

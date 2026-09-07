@@ -18,7 +18,8 @@ from apps.employees.models import (
 from apps.employees.tasks import (
     delete_current_photo_file,
     delete_pending_photo_file,
-    send_photo_rejection_email,
+    publish_approved_photo,
+    send_photo_rejection_notification_email,
 )
 from apps.integrations.exceptions import CaptchaUnavailableError
 
@@ -162,20 +163,59 @@ def test_admin_approve_replaces_current_photo(
         current_photo=image_upload("current.png"),
         pending_photo=image_upload("pending.png"),
     )
+    publish = mocker.patch.object(publish_approved_photo, "delay")
     delete_pending = mocker.patch.object(delete_pending_photo_file, "delay")
     delete_current = mocker.patch.object(delete_current_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
     with django_capture_on_commit_callbacks(execute=True):
         response = api_client.post(approve_url(employee))
+        employee.refresh_from_db()
+        assert employee.approved_photo
+        assert not default_storage.exists(employee.approved_photo_public_name)
+        publish_approved_photo.run(employee.pk)
 
     assert response.status_code == status.HTTP_200_OK
     employee.refresh_from_db()
     assert employee.current_photo.name.startswith("employees/current_photos/")
     assert not employee.pending_photo
+    assert not employee.approved_photo
     assert employee.pending_photo_uploaded_at is None
     delete_pending.assert_called_once()
     delete_current.assert_called_once()
+    publish.assert_called_once_with(employee.pk)
+
+
+def test_photo_publisher_recovers_after_copy_before_database_finalization(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    mocker.patch.object(publish_approved_photo, "delay")
+    mocker.patch.object(delete_pending_photo_file, "delay")
+    mocker.patch.object(delete_current_photo_file, "delay")
+    api_client.force_authenticate(user=staff_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = api_client.post(approve_url(employee))
+        employee.refresh_from_db()
+        destination_name = employee.approved_photo_public_name
+        default_storage.save(destination_name, ContentFile(PNG_1X1_BYTES))
+
+        publish_approved_photo.run(employee.pk)
+
+    assert response.status_code == status.HTTP_200_OK
+    employee.refresh_from_db()
+    assert employee.current_photo.name == destination_name
+    assert not employee.approved_photo
 
 
 def test_admin_reject_requires_reason(
@@ -212,7 +252,7 @@ def test_admin_reject_enqueues_email_task_after_commit(
         login="employee",
         pending_photo=image_upload("pending.png"),
     )
-    delay = mocker.patch.object(send_photo_rejection_email, "delay")
+    delay = mocker.patch.object(send_photo_rejection_notification_email, "delay")
     delete_pending = mocker.patch.object(delete_pending_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
@@ -293,7 +333,13 @@ def test_non_staff_user_cannot_access_photo_moderation(
     assert pending_response.status_code == status.HTTP_403_FORBIDDEN
 
 
-def test_approve_is_idempotent(api_client, django_user_model, media_root):
+def test_approve_is_idempotent(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+    django_capture_on_commit_callbacks,
+):
     staff_user = create_user(django_user_model, username="admin", is_staff=True)
     employee = create_employee(
         django_user_model,
@@ -302,14 +348,46 @@ def test_approve_is_idempotent(api_client, django_user_model, media_root):
     )
     api_client.force_authenticate(user=staff_user)
 
-    first_response = api_client.post(approve_url(employee))
-    second_response = api_client.post(approve_url(employee))
+    publish = mocker.patch.object(publish_approved_photo, "delay")
+
+    with django_capture_on_commit_callbacks(execute=True):
+        first_response = api_client.post(approve_url(employee))
+        second_response = api_client.post(approve_url(employee))
 
     assert first_response.status_code == status.HTTP_200_OK
     assert second_response.status_code == status.HTTP_200_OK
     employee.refresh_from_db()
-    assert employee.current_photo
     assert not employee.pending_photo
+    assert employee.approved_photo
+    publish.assert_called_once_with(employee.pk)
+
+
+def test_owner_cannot_upload_while_approved_photo_is_waiting_for_publication(
+    api_client,
+    django_user_model,
+    media_root,
+    mocker,
+):
+    staff_user = create_user(django_user_model, username="admin", is_staff=True)
+    employee = create_employee(
+        django_user_model,
+        login="employee",
+        pending_photo=image_upload("pending.png"),
+    )
+    mocker.patch.object(publish_approved_photo, "delay")
+    api_client.force_authenticate(user=staff_user)
+    approve_response = api_client.post(approve_url(employee))
+
+    api_client.force_authenticate(user=employee.user)
+    upload_response = api_client.post(
+        reverse("profile-photo-upload"),
+        {"photo": image_upload("another.png")},
+        format="multipart",
+    )
+
+    assert approve_response.status_code == status.HTTP_200_OK
+    assert upload_response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "photo" in upload_response.json()
 
 
 def test_reject_is_idempotent(
@@ -325,7 +403,7 @@ def test_reject_is_idempotent(
         login="employee",
         pending_photo=image_upload("pending.png"),
     )
-    delay = mocker.patch.object(send_photo_rejection_email, "delay")
+    delay = mocker.patch.object(send_photo_rejection_notification_email, "delay")
     mocker.patch.object(delete_pending_photo_file, "delay")
     api_client.force_authenticate(user=staff_user)
 
@@ -394,7 +472,7 @@ def test_staff_can_read_legacy_pending_photo_during_storage_rollout(
     assert b"".join(response.streaming_content) == PNG_1X1_BYTES
 
 
-def test_approve_is_idempotent_when_pending_photo_is_rejected_during_copy(
+def test_approve_is_idempotent_when_pending_photo_is_rejected_before_state_change(
     api_client,
     django_user_model,
     media_root,
@@ -408,7 +486,7 @@ def test_approve_is_idempotent_when_pending_photo_is_rejected_during_copy(
     )
     api_client.force_authenticate(user=staff_user)
 
-    def reject_before_copy(_pending_photo):
+    def reject_before_open(*args, **kwargs):
         Employee.objects.filter(pk=employee.pk).update(
             pending_photo="",
             pending_photo_uploaded_at=None,
@@ -416,8 +494,8 @@ def test_approve_is_idempotent_when_pending_photo_is_rejected_during_copy(
         raise FileNotFoundError
 
     mocker.patch(
-        "apps.employees.services._copy_pending_photo_to_current_storage",
-        side_effect=reject_before_copy,
+        "apps.employees.storage.PrivatePendingPhotoStorage.open",
+        side_effect=reject_before_open,
     )
 
     response = api_client.post(approve_url(employee))
@@ -441,7 +519,7 @@ def test_approve_returns_validation_error_when_pending_file_is_missing(
     )
     api_client.force_authenticate(user=staff_user)
     mocker.patch(
-        "apps.employees.services._copy_pending_photo_to_current_storage",
+        "apps.employees.storage.PrivatePendingPhotoStorage.open",
         side_effect=FileNotFoundError,
     )
 
@@ -449,6 +527,21 @@ def test_approve_returns_validation_error_when_pending_file_is_missing(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert "photo" in response.json()
+
+
+def test_openapi_photo_approval_documents_only_real_validation_error(
+    api_client,
+):
+    response = api_client.get(f"{reverse('schema')}?format=json")
+
+    assert response.status_code == status.HTTP_200_OK
+    schema = response.json()
+    profile_get_responses = schema["paths"]["/api/profile/me/"]["get"]["responses"]
+    approve_responses = schema["paths"][
+        "/api/admin/photo-moderation/{employee_id}/approve/"
+    ]["post"]["responses"]
+    assert "400" not in profile_get_responses
+    assert "400" in approve_responses
 
 
 def test_photo_upload_returns_controlled_error_when_captcha_is_unavailable(

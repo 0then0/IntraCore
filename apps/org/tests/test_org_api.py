@@ -1,10 +1,11 @@
 from datetime import date
 from io import StringIO
 
+import psycopg
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -390,6 +391,48 @@ def test_database_rejects_department_cycle_when_model_validation_is_bypassed():
 
     with pytest.raises(IntegrityError), transaction.atomic():
         Department.objects.filter(pk=parent.pk).update(parent=child)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_database_serializes_concurrent_department_hierarchy_updates():
+    first_department = Department.objects.create(code="first", name="First")
+    second_department = Department.objects.create(code="second", name="Second")
+    database = connection.settings_dict
+
+    first_connection = psycopg.connect(
+        dbname=database["NAME"],
+        user=database["USER"],
+        password=database["PASSWORD"],
+        host=database["HOST"],
+        port=database["PORT"],
+    )
+    second_connection = psycopg.connect(
+        dbname=database["NAME"],
+        user=database["USER"],
+        password=database["PASSWORD"],
+        host=database["HOST"],
+        port=database["PORT"],
+    )
+
+    try:
+        with first_connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE org_department SET parent_id = %s WHERE id = %s",
+                (second_department.pk, first_department.pk),
+            )
+
+        with second_connection.cursor() as cursor:
+            cursor.execute("SET LOCAL lock_timeout = '100ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                cursor.execute(
+                    "UPDATE org_department SET parent_id = %s WHERE id = %s",
+                    (first_department.pk, second_department.pk),
+                )
+    finally:
+        first_connection.rollback()
+        second_connection.rollback()
+        first_connection.close()
+        second_connection.close()
 
 
 def test_seed_org_data_rejects_email_or_login_collision():

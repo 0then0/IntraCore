@@ -25,24 +25,29 @@ class Command(BaseCommand):
         for employee in employees.iterator():
             name = employee.pending_photo.name
 
-            if not private_storage.private_exists(name) and not default_storage.exists(
-                name,
-            ):
-                raise CommandError(
-                    f"Public source file is missing for employee {employee.pk}.",
-                )
-
-        for employee in employees.iterator():
-            name = employee.pending_photo.name
-
             if not private_storage.private_exists(name):
+                if not default_storage.exists(name):
+                    raise CommandError(
+                        f"Public source file is missing for employee {employee.pk}.",
+                    )
                 with default_storage.open(name, "rb") as source_file:
                     private_storage.save(name, File(source_file, name=name))
                 copied_count += 1
 
-            if options["delete_source"] and default_storage.exists(name):
-                default_storage.delete(name)
-                deleted_count += 1
+        if options["delete_source"]:
+            for employee in employees.iterator():
+                name = employee.pending_photo.name
+                if not private_storage.private_exists(name):
+                    raise CommandError(
+                        f"Private copy is missing for employee {employee.pk}.",
+                    )
+
+        if options["delete_source"]:
+            for employee in employees.iterator():
+                name = employee.pending_photo.name
+                if default_storage.exists(name):
+                    default_storage.delete(name)
+                    deleted_count += 1
 
         self.stdout.write(
             self.style.SUCCESS(

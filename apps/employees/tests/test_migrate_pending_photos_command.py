@@ -46,7 +46,7 @@ def test_migrate_pending_photos_copies_and_deletes_public_source(
     assert not default_storage.exists(name)
 
 
-def test_migrate_pending_photos_checks_all_sources_before_deleting_any_file(
+def test_migrate_pending_photos_keeps_public_sources_when_a_copy_fails(
     django_user_model,
     settings,
     tmp_path,
@@ -93,4 +93,4 @@ def test_migrate_pending_photos_checks_all_sources_before_deleting_any_file(
         call_command("migrate_pending_photos", delete_source=True, stdout=StringIO())
 
     assert default_storage.exists(existing_name)
-    assert not private_pending_photo_storage.private_exists(existing_name)
+    assert private_pending_photo_storage.private_exists(existing_name)

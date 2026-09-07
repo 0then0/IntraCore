@@ -70,6 +70,13 @@ class Employee(models.Model):
         upload_to="employees/pending_photos/",
         storage=private_pending_photo_storage,
     )
+    approved_photo = models.FileField(
+        blank=True,
+        upload_to="employees/pending_photos/",
+        storage=private_pending_photo_storage,
+    )
+    approved_photo_public_name = models.CharField(max_length=255, blank=True)
+    approved_photo_promotion_claimed_at = models.DateTimeField(blank=True, null=True)
     pending_photo_uploaded_at = models.DateTimeField(blank=True, null=True)
     photo_rejection_reason = models.TextField(max_length=500, blank=True)
     photo_moderated_at = models.DateTimeField(blank=True, null=True)
@@ -109,7 +116,7 @@ class Employee(models.Model):
 
     @property
     def has_pending_photo(self) -> bool:
-        return bool(self.pending_photo)
+        return bool(self.pending_photo or self.approved_photo)
 
     @property
     def effective_city(self) -> str:

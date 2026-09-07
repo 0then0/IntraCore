@@ -112,14 +112,21 @@ Rejected photo email notifications are sent by Celery only when
 `PHOTO_MODERATION_EMAIL_ENABLED=true`.
 The delivery claim expires after `PHOTO_REJECTION_EMAIL_CLAIM_TIMEOUT_SECONDS`
 (default: 900), allowing a redelivered task to recover after a worker loss.
+Approved photo publication uses
+`PHOTO_APPROVAL_PUBLISH_CLAIM_TIMEOUT_SECONDS` (default: 300).
 
 Pending files are stored outside public `MEDIA_ROOT`. Moderation admins download
 them through the protected API endpoint returned by the moderation list, not by
 using a storage URL directly.
 
+Approval moves the file through private storage first. The public current photo
+is published by a Celery task after the approval transaction commits.
+
 When upgrading an environment that already contains pending photos in public
-media, deploy this application version first. It can read legacy pending files
-from public media while the copy is in progress. Then apply migrations and run:
+media, apply migrations while the previous application version is still running.
+Before deploying the new web version, drain and stop workers that only know the
+legacy photo-email task. Then deploy the new web and Celery workers and run the
+file copy. The command copies every file before it deletes any public source:
 
 ```bash
 docker compose exec web python manage.py migrate_pending_photos --delete-source
@@ -130,6 +137,11 @@ Photo uploads can be protected with CAPTCHA. With `CAPTCHA_ENABLED=true`, the
 multipart request must include a `captcha_token`; the verification service is
 configured with `CAPTCHA_VERIFY_URL` and `CAPTCHA_TIMEOUT_SECONDS`. With the
 flag disabled, no CAPTCHA request is made.
+
+Email delivery is at-least-once. If a worker stops after the mail provider
+accepts a message but before the delivery state is saved, a later retry can send
+one duplicate. Use a mail provider idempotency key when strict exactly-once
+delivery is required.
 
 ## HR sync
 
